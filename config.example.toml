@@ -1,0 +1,156 @@
+# kraymini 配置文件示例
+# 完整配置参考，实际使用时只需保留需要的部分
+# 最简配置只需要一个 [[subscriptions]] 即可运行
+
+# =============================================================================
+# 基础设置
+# =============================================================================
+[general]
+# xray 二进制路径，默认从 PATH 查找
+# xray_bin = "/usr/local/bin/xray"
+
+# 生成的 xray 配置输出路径
+# output_config = "~/.kraymini/xray.json"
+
+# 订阅刷新间隔（秒），默认 3 小时
+refresh_interval = 10800
+
+# 节点过滤：只保留备注中包含这些关键词的节点（不区分大小写）
+# node_include = ["香港", "日本", "美国"]
+
+# 节点过滤：排除备注中包含这些关键词的节点
+# node_exclude = ["剩余流量", "到期时间", "官网"]
+
+# =============================================================================
+# 订阅源（必填，至少一个）
+# =============================================================================
+[[subscriptions]]
+url = "https://your-provider.com/sub?token=xxx"
+name = "主力机场"
+
+# 可配置多个订阅源，节点会自动合并去重
+# [[subscriptions]]
+# url = "https://backup-provider.com/sub?token=yyy"
+# name = "备用机场"
+
+# =============================================================================
+# 本地服务端口
+# =============================================================================
+[inbound]
+listen = "127.0.0.1"
+socks_port = 10808
+http_port = 10809
+api_port = 10810
+sniffing = true
+
+# =============================================================================
+# 落地代理（可选）
+# 配置后所有订阅节点流量会先经过此代理再出站
+# 流量链路：客户端 → 落地代理 → 订阅节点 → 目标
+# =============================================================================
+# --- Trojan + TLS 示例 ---
+# [landing_proxy]
+# protocol = "trojan"
+# address = "landing.example.com"
+# port = 443
+# password = "your-trojan-password"
+#
+# [landing_proxy.transport]
+# network = "tcp"
+#
+# [landing_proxy.security]
+# mode = "tls"
+# server_name = "landing.example.com"
+# fingerprint = "chrome"
+
+# --- VLESS + WebSocket + TLS 示例 ---
+# [landing_proxy]
+# protocol = "vless"
+# address = "ws.example.com"
+# port = 443
+# uuid = "your-vless-uuid"
+#
+# [landing_proxy.transport]
+# network = "ws"
+#
+# [landing_proxy.transport.ws]
+# path = "/ws-path"
+# host = "ws.example.com"
+#
+# [landing_proxy.security]
+# mode = "tls"
+# server_name = "ws.example.com"
+# fingerprint = "chrome"
+
+# --- VLESS + Reality 示例 ---
+# [landing_proxy]
+# protocol = "vless"
+# address = "reality.example.com"
+# port = 443
+# uuid = "your-vless-uuid"
+#
+# [landing_proxy.security]
+# mode = "reality"
+# server_name = "www.microsoft.com"
+# fingerprint = "chrome"
+#
+# [landing_proxy.security.reality]
+# public_key = "your-reality-public-key"
+# short_id = "abcd1234"
+
+# =============================================================================
+# 路由规则（可选）
+# =============================================================================
+[routing]
+domain_strategy = "IPIfNonMatch"
+# domain_matcher = "mph"
+
+# 国内域名直连
+[[routing.rules]]
+domain = ["geosite:cn"]
+outbound_tag = "direct"
+
+# 国内 IP 直连
+[[routing.rules]]
+ip = ["geoip:cn", "geoip:private"]
+outbound_tag = "direct"
+
+# 广告拦截
+[[routing.rules]]
+domain = ["geosite:category-ads-all"]
+outbound_tag = "blocked"
+
+# =============================================================================
+# DNS 分流（可选）
+# =============================================================================
+[dns]
+
+[dns.hosts]
+# 自定义域名解析
+# "my-internal-site.com" = "192.168.1.100"
+
+# 国内域名用国内 DNS
+[[dns.servers]]
+address = "119.29.29.29"
+port = 53
+domains = ["geosite:cn"]
+expect_ips = ["geoip:cn"]
+
+# 其他域名用国外 DNS
+[[dns.servers]]
+address = "8.8.8.8"
+
+# =============================================================================
+# 健康检查
+# =============================================================================
+[observatory]
+probe_url = "https://www.google.com/generate_204"
+probe_interval = "5m"
+
+# =============================================================================
+# 日志
+# =============================================================================
+[log]
+level = "info"           # kraymini 日志: debug / info / warning / error
+xray_level = "warning"   # xray 日志: debug / info / warning / error / none
+# file = "/var/log/kraymini.log"  # 为空则输出到 stderr
