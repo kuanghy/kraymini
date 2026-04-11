@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kraymini"
+version = "0.1.0"
+description = "Xray 服务管理器：自动订阅拉取、配置生成与进程管理"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+
+[project.scripts]
+kraymini = "kraymini.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kraymini"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
