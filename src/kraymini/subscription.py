@@ -95,6 +95,12 @@ def assign_names(nodes: list[Node]) -> list[Node]:
     return final
 
 
+def _keyword_matches_node(node: Node, keyword: str) -> bool:
+    """子串匹配节点备注或地址（不区分大小写）。"""
+    k = keyword.lower()
+    return k in node.remark.lower() or k in node.address.lower()
+
+
 def filter_nodes(
     nodes: list[Node],
     include: list[str],
@@ -104,12 +110,12 @@ def filter_nodes(
     if include:
         result = [
             n for n in result
-            if any(kw.lower() in n.remark.lower() for kw in include)
+            if any(_keyword_matches_node(n, kw) for kw in include)
         ]
     if exclude:
         result = [
             n for n in result
-            if not any(kw.lower() in n.remark.lower() for kw in exclude)
+            if not any(_keyword_matches_node(n, kw) for kw in exclude)
         ]
     return result
 

@@ -45,9 +45,9 @@ def mock_server():
     server.shutdown()
 
 
-def _node(uri="vless://a", remark="test", source=""):
+def _node(uri="vless://a", remark="test", source="", address="host"):
     return Node(raw_uri=uri, remark=remark, protocol="vless",
-                address="host", port=443, credentials={}, transport={}, source=source)
+                address=address, port=443, credentials={}, transport={}, source=source)
 
 
 class TestFetchSubscription:
@@ -151,6 +151,25 @@ class TestFilterNodes:
     def test_case_insensitive(self):
         nodes = [_node("u1", "HK-Node"), _node("u2", "US-Node")]
         assert len(filter_nodes(nodes, ["hk"], [])) == 1
+
+    def test_include_by_address(self):
+        nodes = [
+            _node("u1", "节点-A", address="hk.example.com"),
+            _node("u2", "节点-B", address="us.example.com"),
+        ]
+        result = filter_nodes(nodes, ["hk.example"], [])
+        assert len(result) == 1 and result[0].remark == "节点-A"
+
+    def test_exclude_by_address(self):
+        nodes = [
+            _node("u1", "香港", address="1.2.3.4"),
+            _node("u2", "香港", address="5.6.7.8"),
+        ]
+        assert len(filter_nodes(nodes, [], ["1.2.3"])) == 1
+
+    def test_case_insensitive_address(self):
+        nodes = [_node("u1", "x", address="AbC.example.com")]
+        assert len(filter_nodes(nodes, ["abc"], [])) == 1
 
 
 class TestNodeCache:
