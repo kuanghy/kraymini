@@ -10,17 +10,11 @@ from pathlib import Path
 from urllib.error import URLError, HTTPError
 from urllib.request import Request, urlopen
 
-from kraymini.config import KrayminiConfig
-from kraymini.log import logger
-from kraymini.models import Node
-from kraymini.parser import parse_uri, ParseError
-
-
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/125.0.0.0 Safari/537.36"
-)
+from .config import KrayminiConfig
+from .constants import USER_AGENT
+from .log import logger
+from .models import Node
+from .parser import parse_uri, ParseError
 
 RESERVED_TAGS = {
     "landing-proxy", "direct", "blocked", "api", "balancer",

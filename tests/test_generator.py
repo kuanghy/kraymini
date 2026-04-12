@@ -23,6 +23,7 @@ from kraymini.config import (
     TransportConfig,
     SecurityConfig,
     WsTransportConfig,
+    GrpcTransportConfig,
     ObservatoryConfig,
     RoutingConfig,
     RoutingRule,
@@ -130,6 +131,34 @@ class TestGenerateNodeOutbound:
         assert ob["streamSettings"]["grpcSettings"]["serviceName"] == "mygrpc"
         assert ob["streamSettings"]["grpcSettings"]["multiMode"] is True
 
+    def test_grpc_multi_mode_false(self):
+        node = Node(
+            raw_uri="vless://...", remark="gRPC2", protocol="vless",
+            address="host", port=443, credentials={"uuid": "uuid", "encryption": "none"},
+            transport={"network": "grpc", "security": "tls", "sni": "host",
+                        "fingerprint": "chrome", "service_name": "svc",
+                        "multi_mode": False, "alpn": "", "host": "", "path": "", "header_type": ""},
+        )
+        ob = generate_node_outbound(node)
+        assert ob["streamSettings"]["grpcSettings"]["multiMode"] is False
+
+    def test_vmess_tcp_http_obfuscation(self):
+        node = Node(
+            raw_uri="vmess://...", remark="VM-TCP-HTTP", protocol="vmess",
+            address="1.2.3.4", port=443,
+            credentials={"uuid": "u", "alter_id": 0, "security": "auto"},
+            transport={
+                "network": "tcp", "security": "", "sni": "", "fingerprint": "",
+                "alpn": "", "header_type": "http", "host": "cdn.example.com",
+                "path": "/fake/path.js",
+            },
+        )
+        ob = generate_node_outbound(node)
+        tcp = ob["streamSettings"]["tcpSettings"]
+        assert tcp["header"]["type"] == "http"
+        assert tcp["header"]["request"]["path"] == ["/fake/path.js"]
+        assert tcp["header"]["request"]["headers"]["Host"] == ["cdn.example.com"]
+
     def test_proxy_settings(self):
         ob = generate_node_outbound(_vless_node(), proxy_tag="landing-proxy")
         assert ob["proxySettings"]["tag"] == "landing-proxy"
@@ -155,6 +184,19 @@ class TestLandingProxy:
         )
         ob = generate_landing_proxy_outbound(lp)
         assert ob["streamSettings"]["wsSettings"]["path"] == "/lp"
+
+    def test_vmess_grpc_multi_mode_false(self):
+        lp = LandingProxyConfig(
+            protocol="vmess", address="grpc.host", port=443, uuid="uuid",
+            transport=TransportConfig(
+                network="grpc",
+                grpc=GrpcTransportConfig(service_name="svc", multi_mode=False),
+            ),
+            security=SecurityConfig(mode="tls", server_name="grpc.host", alpn=["h2"]),
+        )
+        ob = generate_landing_proxy_outbound(lp)
+        assert ob["streamSettings"]["grpcSettings"]["serviceName"] == "svc"
+        assert ob["streamSettings"]["grpcSettings"]["multiMode"] is False
 
 
 class TestFixedOutbounds:

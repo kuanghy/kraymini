@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from kraymini.models import Node
-from kraymini.parser import vmess, vless, trojan, shadowsocks, hysteria
+from ..models import Node
+from . import vmess, vless, trojan, shadowsocks, hysteria
 
 PARSERS = {
     "vmess://": vmess,

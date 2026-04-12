@@ -18,37 +18,37 @@ class TestNode:
         assert node.credentials["uuid"] == "test-uuid"
         assert node.source == "provider-a"
 
-    def test_node_equality_by_raw_uri(self):
+    def test_dedup_same_endpoint(self):
         node1 = Node(
-            raw_uri="vless://same-uri",
+            raw_uri="vless://uuid@host:443?type=tcp#a",
             remark="a",
             protocol="vless",
             address="host",
             port=443,
-            credentials={},
+            credentials={"uuid": "same-uuid"},
             transport={},
             source="src1",
         )
         node2 = Node(
-            raw_uri="vless://same-uri",
+            raw_uri="vless://uuid@host:443?type=ws#b",
             remark="b",
             protocol="vless",
-            address="host2",
-            port=444,
-            credentials={},
+            address="host",
+            port=443,
+            credentials={"uuid": "same-uuid"},
             transport={},
             source="src2",
         )
         assert node1.dedup_key == node2.dedup_key
 
-    def test_node_different_uri(self):
+    def test_dedup_different_endpoint(self):
         node1 = Node(
             raw_uri="vless://uri-1",
             remark="a",
             protocol="vless",
-            address="host",
+            address="host1",
             port=443,
-            credentials={},
+            credentials={"uuid": "uuid-1"},
             transport={},
             source="",
         )
@@ -56,9 +56,9 @@ class TestNode:
             raw_uri="vless://uri-2",
             remark="a",
             protocol="vless",
-            address="host",
+            address="host2",
             port=443,
-            credentials={},
+            credentials={"uuid": "uuid-2"},
             transport={},
             source="",
         )

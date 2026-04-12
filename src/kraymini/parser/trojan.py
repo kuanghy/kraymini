@@ -2,18 +2,13 @@ from __future__ import annotations
 
 from urllib.parse import parse_qs, unquote, urlparse
 
-from kraymini.models import Node
+from ..models import Node
+from ._utils import split_fragment
 
 
 def parse(uri: str) -> Node:
     raw_uri = uri
-
-    fragment = ""
-    if "#" in uri:
-        uri_part, fragment = uri.rsplit("#", 1)
-        fragment = unquote(fragment)
-    else:
-        uri_part = uri
+    uri_part, fragment = split_fragment(uri)
 
     parsed = urlparse(uri_part.replace("trojan://", "https://", 1))
     params = parse_qs(parsed.query, keep_blank_values=True)

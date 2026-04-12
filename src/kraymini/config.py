@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 
@@ -163,93 +163,60 @@ def _expand_path(p: str) -> str:
     return str(Path(p).expanduser())
 
 
+def _from_toml(cls: type, data: dict):
+    """从 TOML dict 构建 dataclass，忽略未知键，缺失键使用 dataclass 默认值"""
+    known = {f.name for f in fields(cls)}
+    return cls(**{k: v for k, v in data.items() if k in known})
+
+
 def _load_transport(data: dict) -> TransportConfig:
-    network = data.get("network", "tcp")
-    ws = None
-    grpc = None
-    h2 = None
-    if "ws" in data:
-        ws = WsTransportConfig(
-            path=data["ws"].get("path", "/"),
-            host=data["ws"].get("host", ""),
-        )
-    if "grpc" in data:
-        grpc = GrpcTransportConfig(
-            service_name=data["grpc"].get("service_name", ""),
-            multi_mode=data["grpc"].get("multi_mode", True),
-        )
-    if "h2" in data:
-        h2 = H2TransportConfig(
-            path=data["h2"].get("path", "/"),
-            host=data["h2"].get("host", []),
-        )
-    return TransportConfig(network=network, ws=ws, grpc=grpc, h2=h2)
+    ws = _from_toml(WsTransportConfig, data["ws"]) if "ws" in data else None
+    grpc = _from_toml(GrpcTransportConfig, data["grpc"]) if "grpc" in data else None
+    h2 = _from_toml(H2TransportConfig, data["h2"]) if "h2" in data else None
+    kwargs: dict = {"ws": ws, "grpc": grpc, "h2": h2}
+    if "network" in data:
+        kwargs["network"] = data["network"]
+    return TransportConfig(**kwargs)
 
 
 def _load_security(data: dict) -> SecurityConfig:
-    reality = None
-    if "reality" in data:
-        r = data["reality"]
-        reality = RealityConfig(
-            public_key=r.get("public_key", ""),
-            short_id=r.get("short_id", ""),
-            spider_x=r.get("spider_x", "/"),
-        )
-    return SecurityConfig(
-        mode=data.get("mode", "none"),
-        server_name=data.get("server_name", ""),
-        allow_insecure=data.get("allow_insecure", False),
-        fingerprint=data.get("fingerprint", "chrome"),
-        alpn=data.get("alpn", []),
-        reality=reality,
-    )
+    reality = _from_toml(RealityConfig, data["reality"]) if "reality" in data else None
+    flat = {k: v for k, v in data.items() if k != "reality"}
+    sc = _from_toml(SecurityConfig, flat)
+    sc.reality = reality
+    return sc
 
 
 def _load_landing_proxy(data: dict) -> LandingProxyConfig:
     transport = _load_transport(data.get("transport", {}))
     security = _load_security(data.get("security", {}))
-    return LandingProxyConfig(
-        protocol=data["protocol"],
-        address=data["address"],
-        port=data["port"],
-        uuid=data.get("uuid", ""),
-        password=data.get("password", ""),
-        method=data.get("method", ""),
-        transport=transport,
-        security=security,
-    )
+    flat = {k: v for k, v in data.items() if k not in ("transport", "security")}
+    lp = _from_toml(LandingProxyConfig, flat)
+    lp.transport = transport
+    lp.security = security
+    return lp
 
 
 def _load_routing(data: dict) -> RoutingConfig:
-    rules = []
-    for r in data.get("rules", []):
-        rules.append(RoutingRule(
-            outbound_tag=r["outbound_tag"],
-            domain=r.get("domain", []),
-            ip=r.get("ip", []),
-            network=r.get("network", ""),
-            inbound_tag=r.get("inbound_tag", []),
-        ))
-    return RoutingConfig(
-        domain_strategy=data.get("domain_strategy", "IPOnDemand"),
-        domain_matcher=data.get("domain_matcher", "mph"),
-        rules=rules,
-    )
+    try:
+        rules = [_from_toml(RoutingRule, r) for r in data.get("rules", [])]
+    except TypeError as e:
+        raise ConfigError(f"路由规则配置不完整: {e}") from e
+    flat = {k: v for k, v in data.items() if k != "rules"}
+    rc = _from_toml(RoutingConfig, flat)
+    rc.rules = rules
+    return rc
 
 
 def _load_dns(data: dict) -> DnsConfig:
-    servers = []
-    for s in data.get("servers", []):
-        servers.append(DnsServer(
-            address=s.get("address", ""),
-            port=s.get("port", 53),
-            domains=s.get("domains", []),
-            expect_ips=s.get("expect_ips", []),
-        ))
-    return DnsConfig(
-        hosts=data.get("hosts", {}),
-        servers=servers,
-    )
+    try:
+        servers = [_from_toml(DnsServer, s) for s in data.get("servers", [])]
+    except TypeError as e:
+        raise ConfigError(f"DNS 配置不完整: {e}") from e
+    flat = {k: v for k, v in data.items() if k != "servers"}
+    dc = _from_toml(DnsConfig, flat)
+    dc.servers = servers
+    return dc
 
 
 def _validate_config(cfg: KrayminiConfig) -> None:
@@ -258,6 +225,8 @@ def _validate_config(cfg: KrayminiConfig) -> None:
     for sub in cfg.subscriptions:
         if not sub.url.strip():
             raise ConfigError("订阅源 url 不能为空")
+        if not sub.url.strip().startswith(("http://", "https://")):
+            raise ConfigError(f"订阅源 url 格式不正确: {sub.url!r}")
 
     ports = [cfg.inbound.socks_port, cfg.inbound.http_port, cfg.inbound.api_port]
     for p in ports:
@@ -268,8 +237,8 @@ def _validate_config(cfg: KrayminiConfig) -> None:
 
     try:
         ipaddress.ip_address(cfg.inbound.listen)
-    except ValueError:
-        raise ConfigError(f"listen 地址不合法: {cfg.inbound.listen!r}")
+    except ValueError as e:
+        raise ConfigError(f"listen 地址不合法: {cfg.inbound.listen!r}") from e
 
     if cfg.general.refresh_interval <= 0:
         raise ConfigError("refresh_interval 必须为正整数")
@@ -359,57 +328,24 @@ def load_config(path: str | Path) -> KrayminiConfig:
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"配置文件格式错误: {e}") from e
 
-    general_raw = raw.get("general", {})
-    general = GeneralConfig(
-        xray_bin=general_raw.get("xray_bin", "xray"),
-        output_config=_expand_path(general_raw.get("output_config", "~/.kraymini/xray.json")),
-        refresh_interval=general_raw.get("refresh_interval", 10800),
-        node_include=general_raw.get("node_include", []),
-        node_exclude=general_raw.get("node_exclude", []),
-    )
+    general = _from_toml(GeneralConfig, raw.get("general", {}))
+    general.output_config = _expand_path(general.output_config)
 
-    subs_raw = raw.get("subscriptions", [])
-    subscriptions = [
-        SubscriptionConfig(url=s["url"], name=s.get("name", ""))
-        for s in subs_raw
-    ]
+    try:
+        subscriptions = [_from_toml(SubscriptionConfig, s) for s in raw.get("subscriptions", [])]
+    except TypeError as e:
+        raise ConfigError(f"订阅源配置不完整: {e}") from e
 
-    inbound_raw = raw.get("inbound", {})
-    inbound = InboundConfig(
-        listen=inbound_raw.get("listen", "127.0.0.1"),
-        socks_port=inbound_raw.get("socks_port", 10808),
-        http_port=inbound_raw.get("http_port", 10809),
-        api_port=inbound_raw.get("api_port", 10810),
-        sniffing=inbound_raw.get("sniffing", True),
-    )
+    inbound = _from_toml(InboundConfig, raw.get("inbound", {}))
 
-    landing_proxy = None
-    if "landing_proxy" in raw:
-        landing_proxy = _load_landing_proxy(raw["landing_proxy"])
+    landing_proxy = _load_landing_proxy(raw["landing_proxy"]) if "landing_proxy" in raw else None
+    routing = _load_routing(raw["routing"]) if "routing" in raw else None
+    dns = _load_dns(raw["dns"]) if "dns" in raw else None
+    observatory = _from_toml(ObservatoryConfig, raw.get("observatory", {}))
 
-    routing = None
-    if "routing" in raw:
-        routing = _load_routing(raw["routing"])
-
-    dns = None
-    if "dns" in raw:
-        dns = _load_dns(raw["dns"])
-
-    obs_raw = raw.get("observatory", {})
-    observatory = ObservatoryConfig(
-        probe_url=obs_raw.get("probe_url", "https://www.google.com/generate_204"),
-        probe_interval=obs_raw.get("probe_interval", "5m"),
-    )
-
-    log_raw = raw.get("log", {})
-    log_file = log_raw.get("file", "")
-    if log_file:
-        log_file = _expand_path(log_file)
-    log = LogConfig(
-        level=log_raw.get("level", "info"),
-        xray_level=log_raw.get("xray_level", "warning"),
-        file=log_file,
-    )
+    log = _from_toml(LogConfig, raw.get("log", {}))
+    if log.file:
+        log.file = _expand_path(log.file)
 
     cfg = KrayminiConfig(
         general=general,

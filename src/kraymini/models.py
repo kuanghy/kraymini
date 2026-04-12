@@ -16,7 +16,8 @@ class Node:
 
     @property
     def dedup_key(self) -> str:
-        return self.raw_uri
+        cred = self.credentials.get("uuid") or self.credentials.get("password", "")
+        return f"{self.protocol}://{self.address}:{self.port}:{cred}"
 
     def to_dict(self) -> dict:
         return asdict(self)

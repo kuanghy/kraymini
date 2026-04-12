@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from kraymini.scheduler import CrashMonitor, KrayminiDaemon
+from kraymini.scheduler import CrashMonitor, Daemon
 from kraymini.config import KrayminiConfig, SubscriptionConfig, GeneralConfig
 from kraymini.models import Node
 
@@ -49,7 +49,7 @@ def fake_xray(tmp_path):
     return str(script)
 
 
-class TestKrayminiDaemon:
+class TestDaemon:
     def _make_config(self, tmp_path, xray_bin):
         return KrayminiConfig(
             subscriptions=[SubscriptionConfig(url="https://example.com/sub")],
@@ -75,7 +75,7 @@ class TestKrayminiDaemon:
         config_path = tmp_path / "config.toml"
         config_path.write_text('[[subscriptions]]\nurl = "https://example.com/sub"\n')
         cfg = self._make_config(tmp_path, fake_xray)
-        daemon = KrayminiDaemon(cfg, str(config_path))
+        daemon = Daemon(cfg, str(config_path))
         daemon.initial_start()
         assert daemon.xray.is_running()
         assert daemon.current_nodes is not None
@@ -90,6 +90,6 @@ class TestKrayminiDaemon:
         config_path = tmp_path / "config.toml"
         config_path.write_text('[[subscriptions]]\nurl = "https://example.com/sub"\n')
         cfg = self._make_config(tmp_path, fake_xray)
-        daemon = KrayminiDaemon(cfg, str(config_path))
+        daemon = Daemon(cfg, str(config_path))
         with pytest.raises(SystemExit):
             daemon.initial_start()

@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+import os
+import select
 import signal
 import sys
 import time
 from pathlib import Path
 
-from kraymini.config import KrayminiConfig
-from kraymini.generator import generate_xray_config, write_xray_config
-from kraymini.log import logger
-from kraymini.models import Node
-from kraymini.process import XrayProcess
-from kraymini.subscription import SubscriptionManager
+from .config import KrayminiConfig
+from .generator import generate_xray_config, write_xray_config
+from .log import logger
+from .models import Node
+from .process import XrayProcess
+from .subscription import SubscriptionManager
 
 
 POLL_INTERVAL = 5
@@ -36,7 +38,7 @@ class CrashMonitor:
         self.is_suspended = False
 
 
-class KrayminiDaemon:
+class Daemon:
     def __init__(self, config: KrayminiConfig, config_path: str):
         self.config = config
         self.config_path = config_path
@@ -47,10 +49,37 @@ class KrayminiDaemon:
         self.current_nodes: list[Node] | None = None
         self._force_refresh = False
         self._running = True
+        self._pipe_r, self._pipe_w = os.pipe()
+        os.set_blocking(self._pipe_r, False)
+        os.set_blocking(self._pipe_w, False)
+
+    def _wakeup(self) -> None:
+        try:
+            os.write(self._pipe_w, b"\x00")
+        except OSError:
+            pass
+
+    def _drain_pipe(self) -> None:
+        try:
+            os.read(self._pipe_r, 1024)
+        except OSError:
+            pass
+
+    def _close_pipe(self) -> None:
+        for fd in (self._pipe_r, self._pipe_w):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+    def _wait(self, timeout: float) -> None:
+        """可被信号立即唤醒的等待"""
+        select.select([self._pipe_r], [], [], timeout)
+        self._drain_pipe()
 
     def initial_start(self) -> None:
         nodes = self.sub_mgr.refresh()
-        if nodes is None or len(nodes) == 0:
+        if not nodes:
             logger.critical("订阅拉取失败且无可用缓存，无法生成配置")
             sys.exit(2)
         self.current_nodes = nodes
@@ -63,7 +92,7 @@ class KrayminiDaemon:
 
     def _do_refresh(self) -> None:
         new_nodes = self.sub_mgr.refresh()
-        if new_nodes is None or len(new_nodes) == 0:
+        if not new_nodes:
             logger.error("订阅拉取失败或无有效节点，保持当前配置继续运行")
             return
         if not self.sub_mgr.nodes_changed(self.current_nodes, new_nodes) and not self.crash_monitor.is_suspended:
@@ -87,14 +116,18 @@ class KrayminiDaemon:
         self.initial_start()
         last_refresh = time.time()
         while self._running:
-            time.sleep(POLL_INTERVAL)
+            self._wait(POLL_INTERVAL)
+            if not self._running:
+                break
             if not self.crash_monitor.is_suspended and not self.xray.is_running():
                 self.crash_monitor.record_crash()
                 if self.crash_monitor.is_suspended:
                     logger.critical("xray 连续崩溃 %d 次，暂停重启，等待下次订阅刷新", self.crash_monitor.max_crashes)
                 else:
                     logger.error("xray 意外退出，%ds 后重启", CRASH_RESTART_DELAY)
-                    time.sleep(CRASH_RESTART_DELAY)
+                    self._wait(CRASH_RESTART_DELAY)
+                    if not self._running:
+                        break
                     self.xray.start(self.config.general.output_config, log_file=self.config.log.file)
             need_refresh = self._force_refresh or (time.time() - last_refresh >= self.config.general.refresh_interval)
             if not need_refresh:
@@ -102,17 +135,23 @@ class KrayminiDaemon:
             self._force_refresh = False
             last_refresh = time.time()
             self._do_refresh()
+        self.xray.stop()
+        self._close_pipe()
+        logger.info("kraymini 已停止")
 
     def shutdown(self) -> None:
+        """停止 daemon（供外部调用）"""
         self._running = False
+        self._wakeup()
         self.xray.stop()
         logger.info("kraymini 已停止")
 
     def _setup_signals(self) -> None:
+        signal.set_wakeup_fd(self._pipe_w)
+
         def handle_term(signum, frame):
             logger.info("收到 %s 信号，正在停止...", signal.Signals(signum).name)
-            self.shutdown()
-            sys.exit(0)
+            self._running = False
 
         def handle_hup(signum, frame):
             logger.info("收到 SIGHUP，触发立即刷新")

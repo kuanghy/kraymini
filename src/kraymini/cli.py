@@ -5,9 +5,9 @@ import json
 import sys
 from pathlib import Path
 
-import kraymini
-from kraymini.config import find_config, load_config, ConfigError
-from kraymini.log import setup_logging, logger
+from . import __version__
+from .config import find_config, load_config, ConfigError
+from .log import setup_logging, logger
 
 
 def _add_common_cli_args(ap: argparse.ArgumentParser, *, for_subparser: bool = False) -> None:
@@ -51,35 +51,35 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def cmd_check(config_path: str | None) -> None:
+def cmd_check(config_path: str | None) -> int:
     try:
         path = find_config(config_path)
         load_config(path)
         print("OK")
-        sys.exit(0)
+        return 0
     except ConfigError as e:
         print(f"配置校验失败: {e}", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
 
-def cmd_version() -> None:
-    print(f"kraymini {kraymini.__version__}")
-    sys.exit(0)
+def cmd_version() -> int:
+    print(f"kraymini {__version__}")
+    return 0
 
 
-def cmd_genconfig(config_path: str | None, output: str | None, offline: bool) -> None:
+def cmd_genconfig(config_path: str | None, output: str | None, offline: bool) -> int:
     try:
         path = find_config(config_path)
         cfg = load_config(path)
     except ConfigError as e:
         print(f"配置错误: {e}", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     setup_logging(level=cfg.log.level, log_file=cfg.log.file)
 
-    from kraymini.subscription import SubscriptionManager, load_cache, get_cache_path
-    from kraymini.generator import generate_xray_config, write_xray_config
-    from kraymini.process import XrayProcess
+    from .subscription import SubscriptionManager, load_cache, get_cache_path
+    from .generator import generate_xray_config, write_xray_config
+    from .process import XrayProcess
 
     runtime_dir = str(Path(cfg.general.output_config).parent)
     Path(runtime_dir).expanduser().mkdir(parents=True, exist_ok=True)
@@ -89,13 +89,13 @@ def cmd_genconfig(config_path: str | None, output: str | None, offline: bool) ->
         nodes = load_cache(cache_path)
         if nodes is None:
             print("离线模式: 缓存不存在", file=sys.stderr)
-            sys.exit(2)
+            return 2
     else:
         mgr = SubscriptionManager(cfg, str(path), runtime_dir=runtime_dir)
         nodes = mgr.refresh()
-        if nodes is None or len(nodes) == 0:
+        if not nodes:
             print("订阅拉取失败且无可用缓存", file=sys.stderr)
-            sys.exit(2)
+            return 2
 
     xray_config = generate_xray_config(cfg, nodes)
 
@@ -109,27 +109,28 @@ def cmd_genconfig(config_path: str | None, output: str | None, offline: bool) ->
             logger.info("配置已生成并校验通过: %s", written)
         else:
             logger.error("配置已生成但校验失败: %s", written)
-            sys.exit(2)
+            return 2
 
-    sys.exit(0)
+    return 0
 
 
-def cmd_run(config_path: str | None) -> None:
+def cmd_run(config_path: str | None) -> int:
     try:
         path = find_config(config_path)
         cfg = load_config(path)
     except ConfigError as e:
         print(f"配置错误: {e}", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     setup_logging(level=cfg.log.level, log_file=cfg.log.file)
 
     runtime_dir = str(Path(cfg.general.output_config).parent)
     Path(runtime_dir).expanduser().mkdir(parents=True, exist_ok=True)
 
-    from kraymini.scheduler import KrayminiDaemon
-    daemon = KrayminiDaemon(cfg, str(path))
+    from .scheduler import Daemon
+    daemon = Daemon(cfg, str(path))
     daemon.run()
+    return 0
 
 
 def main() -> None:
@@ -143,13 +144,13 @@ def main() -> None:
         setup_logging(level="debug")
 
     if args.command == "version":
-        cmd_version()
+        sys.exit(cmd_version())
     elif args.command == "check":
-        cmd_check(config_path)
+        sys.exit(cmd_check(config_path))
     elif args.command == "genconfig":
-        cmd_genconfig(config_path, args.output, args.offline)
+        sys.exit(cmd_genconfig(config_path, args.output, args.offline))
     elif args.command == "run":
-        cmd_run(config_path)
+        sys.exit(cmd_run(config_path))
     else:
         parser.print_help()
         sys.exit(1)

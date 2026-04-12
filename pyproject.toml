@@ -15,5 +15,8 @@ kraymini = "kraymini.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/kraymini"]
 
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

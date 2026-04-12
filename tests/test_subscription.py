@@ -81,15 +81,22 @@ class TestFetchSubscription:
 
 
 class TestDeduplicateNodes:
-    def test_dedup_by_uri(self):
-        nodes = [_node("uri-1", "a"), _node("uri-2", "b"), _node("uri-1", "c")]
-        result = deduplicate_nodes(nodes)
+    def test_dedup_by_endpoint(self):
+        n1 = Node(raw_uri="uri-1", remark="a", protocol="vless",
+                  address="host1", port=443, credentials={"uuid": "u1"}, transport={})
+        n2 = Node(raw_uri="uri-2", remark="b", protocol="vless",
+                  address="host2", port=443, credentials={"uuid": "u2"}, transport={})
+        n3 = Node(raw_uri="uri-3", remark="c", protocol="vless",
+                  address="host1", port=443, credentials={"uuid": "u1"}, transport={})
+        result = deduplicate_nodes([n1, n2, n3])
         assert len(result) == 2
         assert result[0].remark == "a"
 
-    def test_same_host_different_uri(self):
-        n1 = _node("vless://uuid1@host:443", "a")
-        n2 = _node("vless://uuid2@host:443", "b")
+    def test_same_host_different_credentials(self):
+        n1 = Node(raw_uri="vless://uuid1@host:443", remark="a", protocol="vless",
+                  address="host", port=443, credentials={"uuid": "uuid-1"}, transport={})
+        n2 = Node(raw_uri="vless://uuid2@host:443", remark="b", protocol="vless",
+                  address="host", port=443, credentials={"uuid": "uuid-2"}, transport={})
         assert len(deduplicate_nodes([n1, n2])) == 2
 
 

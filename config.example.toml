@@ -98,6 +98,26 @@ sniffing = true
 # public_key = "your-reality-public-key"
 # short_id = "abcd1234"
 
+# --- VLESS + gRPC + TLS 示例 ---
+# [landing_proxy]
+# protocol = "vless"
+# address = "grpc.example.com"
+# port = 443
+# uuid = "your-vless-uuid"
+#
+# [landing_proxy.transport]
+# network = "grpc"
+#
+# [landing_proxy.transport.grpc]
+# service_name = "your-service-name"
+# multi_mode = true
+# 须与落地代理服务端一致；多数服务端未开 multi 时需设为 false，否则易 503/连不上
+#
+# [landing_proxy.security]
+# mode = "tls"
+# server_name = "grpc.example.com"
+# fingerprint = "chrome"
+
 # =============================================================================
 # 路由规则（可选）
 # =============================================================================

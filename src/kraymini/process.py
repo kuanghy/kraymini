@@ -4,7 +4,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from kraymini.log import logger
+from .log import logger
 
 
 STOP_TIMEOUT = 5
@@ -18,6 +18,7 @@ class XrayProcess:
     def __init__(self, xray_bin: str = "xray"):
         self.xray_bin = xray_bin
         self._process: subprocess.Popen | None = None
+        self._log_fh = None
 
     def _resolve_bin(self) -> str:
         path = Path(self.xray_bin)
@@ -53,21 +54,28 @@ class XrayProcess:
 
     def start(self, config_path: str, log_file: str = "") -> None:
         bin_path = self._resolve_bin()
-        stderr_target = subprocess.DEVNULL
+        self._close_log_fh()
         if log_file:
-            stderr_target = open(log_file, "a", encoding="utf-8")
+            self._log_fh = open(log_file, "a", encoding="utf-8")
         self._process = subprocess.Popen(
             [bin_path, "run", "-c", config_path],
             stdout=subprocess.DEVNULL,
-            stderr=stderr_target,
+            stderr=self._log_fh or subprocess.DEVNULL,
         )
         logger.info("xray 已启动 (PID=%d): %s", self._process.pid, config_path)
 
+    def _close_log_fh(self) -> None:
+        if self._log_fh is not None:
+            self._log_fh.close()
+            self._log_fh = None
+
     def stop(self) -> None:
         if self._process is None:
+            self._close_log_fh()
             return
         if self._process.poll() is not None:
             self._process = None
+            self._close_log_fh()
             return
         logger.info("正在停止 xray (PID=%d)...", self._process.pid)
         self._process.terminate()
@@ -78,6 +86,7 @@ class XrayProcess:
             self._process.kill()
             self._process.wait()
         self._process = None
+        self._close_log_fh()
 
     def is_running(self) -> bool:
         if self._process is None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from kraymini.config import (
+from .config import (
     InboundConfig,
     KrayminiConfig,
     LandingProxyConfig,
@@ -11,14 +11,8 @@ from kraymini.config import (
     DnsConfig,
     ObservatoryConfig,
 )
-from kraymini.models import Node
-
-
-CHROME_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/125.0.0.0 Safari/537.36"
-)
+from .constants import USER_AGENT
+from .models import Node
 
 
 def generate_inbounds(cfg: InboundConfig) -> list[dict]:
@@ -67,7 +61,7 @@ def _build_stream_settings(transport: dict) -> dict:
     if security == "tls":
         tls: dict = {
             "serverName": transport.get("sni", ""),
-            "allowInsecure": False,
+            "allowInsecure": transport.get("insecure", False),
             "fingerprint": transport.get("fingerprint", "chrome"),
         }
         alpn = transport.get("alpn", "")
@@ -91,10 +85,21 @@ def _build_stream_settings(transport: dict) -> dict:
     else:
         ss["security"] = "none"
 
-    if network == "ws":
+    if network == "tcp":
+        header_type = transport.get("header_type", "")
+        if header_type == "http":
+            request: dict = {}
+            path = transport.get("path", "")
+            if path:
+                request["path"] = [path]
+            host = transport.get("host", "")
+            if host:
+                request["headers"] = {"Host": [host]}
+            ss["tcpSettings"] = {"header": {"type": "http", "request": request}}
+    elif network == "ws":
         headers = {
             "Host": transport.get("host", ""),
-            "User-Agent": CHROME_UA,
+            "User-Agent": USER_AGENT,
             "Accept-Encoding": "gzip, deflate, br",
             "Accept-Language": "zh-CN,zh;q=0.9",
         }
@@ -102,7 +107,7 @@ def _build_stream_settings(transport: dict) -> dict:
     elif network == "grpc":
         ss["grpcSettings"] = {
             "serviceName": transport.get("service_name", ""),
-            "multiMode": True,
+            "multiMode": transport.get("multi_mode", True),
         }
     elif network == "h2":
         h2s: dict = {"path": transport.get("path", "/")}
@@ -165,6 +170,20 @@ def generate_node_outbound(node: Node, proxy_tag: str | None = None) -> dict:
                 "password": node.credentials.get("password", ""),
             }],
         }
+    elif node.protocol == "hysteria2":
+        ob["protocol"] = "hysteria2"
+        server: dict = {
+            "address": node.address,
+            "port": node.port,
+            "password": node.credentials.get("password", ""),
+        }
+        obfs = node.transport.get("obfs", "")
+        if obfs:
+            server["obfs"] = {
+                "type": obfs,
+                "password": node.transport.get("obfs_password", ""),
+            }
+        ob["settings"] = {"servers": [server]}
 
     ob["streamSettings"] = _build_stream_settings(node.transport)
 
@@ -187,6 +206,7 @@ def generate_landing_proxy_outbound(lp: LandingProxyConfig) -> dict:
         transport_dict["path"] = lp.transport.ws.path
     elif lp.transport.network == "grpc" and lp.transport.grpc:
         transport_dict["service_name"] = lp.transport.grpc.service_name
+        transport_dict["multi_mode"] = lp.transport.grpc.multi_mode
     elif lp.transport.network == "h2" and lp.transport.h2:
         transport_dict["host"] = lp.transport.h2.host
         transport_dict["path"] = lp.transport.h2.path

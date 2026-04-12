@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import base64
-from urllib.parse import unquote
 
-from kraymini.models import Node
+from ..models import Node
+from ._utils import split_fragment
 
 
 def _b64decode(s: str) -> str:
@@ -18,12 +18,8 @@ def _b64decode(s: str) -> str:
 
 def parse(uri: str) -> Node:
     raw_uri = uri
-    body = uri.removeprefix("ss://")
-
-    fragment = ""
-    if "#" in body:
-        body, fragment = body.rsplit("#", 1)
-        fragment = unquote(fragment)
+    uri_part, fragment = split_fragment(uri)
+    body = uri_part.removeprefix("ss://")
 
     if "@" in body:
         user_part, server_part = body.rsplit("@", 1)
