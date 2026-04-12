@@ -5,6 +5,8 @@ from kraymini.generator import (
     generate_inbounds,
     generate_node_outbound,
     generate_landing_proxy_outbound,
+    generate_landing_chain_outbound,
+    landing_chain_tag,
     generate_fixed_outbounds,
     generate_balancer,
     generate_observatory,
@@ -32,6 +34,10 @@ from kraymini.config import (
     LogConfig,
 )
 from kraymini.models import Node
+
+
+def test_landing_chain_tag():
+    assert landing_chain_tag("my-node") == "LP-Via: my-node"
 
 
 def _vless_node(remark="node-1", address="host1", port=443):
@@ -166,6 +172,17 @@ class TestGenerateNodeOutbound:
 
 
 class TestLandingProxy:
+    def test_chain_outbound_proxy_settings(self):
+        lp = LandingProxyConfig(
+            protocol="trojan", address="land.com", port=443, password="pw",
+            transport=TransportConfig(network="tcp"),
+            security=SecurityConfig(mode="tls", server_name="land.com"),
+        )
+        ob = generate_landing_chain_outbound(lp, "LP-Via: n1", "n1")
+        assert ob["tag"] == "LP-Via: n1"
+        assert ob["proxySettings"]["tag"] == "n1"
+        assert ob["proxySettings"]["transportLayer"] is True
+
     def test_trojan_tls(self):
         lp = LandingProxyConfig(
             protocol="trojan", address="land.com", port=443, password="pw",
@@ -306,9 +323,14 @@ class TestGenerateXrayConfig:
         )
         xray = generate_xray_config(cfg, [_vless_node()])
         tags = [o["tag"] for o in xray["outbounds"]]
-        assert "landing-proxy" in tags
+        assert "LP-Via: node-1" in tags
+        assert "landing-proxy" not in tags
         node_ob = next(o for o in xray["outbounds"] if o["tag"] == "node-1")
-        assert node_ob["proxySettings"]["tag"] == "landing-proxy"
+        assert "proxySettings" not in node_ob
+        chain_ob = next(o for o in xray["outbounds"] if o["tag"] == "LP-Via: node-1")
+        assert chain_ob["proxySettings"]["tag"] == "node-1"
+        assert xray["routing"]["balancers"][0]["selector"] == ["LP-Via: node-1"]
+        assert xray["observatory"]["subjectSelector"] == ["LP-Via: node-1"]
 
     def test_log_section(self):
         cfg = KrayminiConfig(

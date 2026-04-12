@@ -5,6 +5,8 @@ import tomllib
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 
+from .constants import LANDING_CHAIN_PREFIX
+
 
 class ConfigError(Exception):
     pass
@@ -246,7 +248,9 @@ def _validate_config(cfg: KrayminiConfig) -> None:
     if cfg.log.level not in VALID_LOG_LEVELS:
         raise ConfigError(f"level 必须为 {VALID_LOG_LEVELS} 之一，实际: {cfg.log.level!r}")
     if cfg.log.xray_level not in VALID_XRAY_LEVELS:
-        raise ConfigError(f"xray_level 必须为 {VALID_XRAY_LEVELS} 之一，实际: {cfg.log.xray_level!r}")
+        raise ConfigError(
+            f"xray_level 必须为 {VALID_XRAY_LEVELS} 之一，实际: {cfg.log.xray_level!r}"
+        )
 
     lp = cfg.landing_proxy
     if lp is not None:
@@ -260,16 +264,14 @@ def _validate_config(cfg: KrayminiConfig) -> None:
             if not lp.method:
                 raise ConfigError("shadowsocks 协议需要 method")
         if lp.transport.network not in VALID_NETWORKS:
-            raise ConfigError(f"network 必须为 {VALID_NETWORKS} 之一，实际: {lp.transport.network!r}")
+            raise ConfigError(
+                f"network 必须为 {VALID_NETWORKS} 之一，实际: {lp.transport.network!r}"
+            )
         if lp.security.mode == "reality":
             if not lp.security.server_name:
                 raise ConfigError("reality 模式需要 server_name")
             if lp.security.reality is None or not lp.security.reality.public_key:
                 raise ConfigError("reality 模式需要 public_key")
-
-    allowed_tags = set(VALID_OUTBOUND_TAGS)
-    if lp is not None:
-        allowed_tags.add("landing-proxy")
 
     if cfg.routing is not None:
         if cfg.routing.domain_strategy not in VALID_DOMAIN_STRATEGIES:
@@ -283,10 +285,16 @@ def _validate_config(cfg: KrayminiConfig) -> None:
                 f"实际: {cfg.routing.domain_matcher!r}"
             )
         for rule in cfg.routing.rules:
-            if rule.outbound_tag not in allowed_tags:
+            tag = rule.outbound_tag
+            if tag in VALID_OUTBOUND_TAGS:
+                pass
+            elif lp is not None and tag.startswith(LANDING_CHAIN_PREFIX):
+                pass
+            else:
+                lp_hint = "；或 LP-Via: <节点备注>（与 [landing_proxy] 链式出口对应）"
+                hint = f"可用: {sorted(VALID_OUTBOUND_TAGS)}" + (lp_hint if lp else "")
                 raise ConfigError(
-                    f"outbound_tag {rule.outbound_tag!r} 无效，"
-                    f"可用值: {allowed_tags}"
+                    f"outbound_tag {tag!r} 无效。{hint}"
                 )
             if not (rule.domain or rule.ip or rule.network or rule.inbound_tag):
                 raise ConfigError(

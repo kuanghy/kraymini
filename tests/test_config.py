@@ -359,8 +359,47 @@ class TestValidateConfig:
     def test_routing_rule_landing_proxy_tag_requires_config(self, write_config):
         toml = '[[subscriptions]]\nurl = "https://example.com/sub"\n\n[[routing.rules]]\ndomain = ["example.com"]\noutbound_tag = "landing-proxy"\n'
         path = write_config(toml)
-        with pytest.raises(ConfigError, match="landing-proxy"):
+        with pytest.raises(ConfigError, match="outbound_tag"):
             load_config(path)
+
+    def test_routing_rule_landing_proxy_invalid_when_landing_configured(self, write_config):
+        toml = """
+[[subscriptions]]
+url = "https://example.com/sub"
+
+[landing_proxy]
+protocol = "trojan"
+address = "h.com"
+port = 443
+password = "pw"
+
+[[routing.rules]]
+domain = ["example.com"]
+outbound_tag = "landing-proxy"
+"""
+        path = write_config(toml)
+        with pytest.raises(ConfigError, match="outbound_tag"):
+            load_config(path)
+
+    def test_routing_rule_lp_via_allowed_with_landing(self, write_config):
+        toml = """
+[[subscriptions]]
+url = "https://example.com/sub"
+
+[landing_proxy]
+protocol = "trojan"
+address = "h.com"
+port = 443
+password = "pw"
+
+[[routing.rules]]
+domain = ["example.com"]
+outbound_tag = "LP-Via: my-node"
+"""
+        path = write_config(toml)
+        cfg = load_config(path)
+        assert cfg.routing is not None
+        assert cfg.routing.rules[0].outbound_tag == "LP-Via: my-node"
 
     def test_routing_rule_must_have_condition(self, write_config):
         toml = '[[subscriptions]]\nurl = "https://example.com/sub"\n\n[[routing.rules]]\noutbound_tag = "direct"\n'
