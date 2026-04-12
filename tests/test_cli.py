@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from kraymini import __version__
 from kraymini.cli import build_parser, cmd_genconfig, main
 from kraymini.config import GeneralConfig, KrayminiConfig, SubscriptionConfig
 
@@ -53,7 +54,7 @@ class TestVersionCommand:
             main()
         assert exc_info.value.code == 0
         out = capsys.readouterr().out
-        assert "kraymini" in out and "0.1.2" in out
+        assert "kraymini" in out and __version__ in out
 
 
 class TestGenconfigCommand:
