@@ -173,4 +173,4 @@ probe_interval = "5m"
 [log]
 level = "info"           # kraymini 日志: debug / info / warning / error
 xray_level = "warning"   # xray 日志: debug / info / warning / error / none
-# file = "/var/log/kraymini.log"  # 为空则输出到 stderr
+# file = "/var/log/kraymini.log"  # 为空则输出到 stdout

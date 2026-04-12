@@ -25,7 +25,7 @@ def setup_logging(level: str = "info", log_file: str = "") -> None:
     if log_file:
         handler = logging.FileHandler(log_file, encoding="utf-8")
     else:
-        handler = logging.StreamHandler(sys.stderr)
+        handler = logging.StreamHandler(sys.stdout)
 
     handler.setFormatter(formatter)
     logger.addHandler(handler)
