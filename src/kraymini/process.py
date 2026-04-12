@@ -55,13 +55,12 @@ class XrayProcess:
     def start(self, config_path: str, log_file: str = "") -> None:
         bin_path = self._resolve_bin()
         self._close_log_fh()
+        popen_kwargs: dict = {}
         if log_file:
             self._log_fh = open(log_file, "a", encoding="utf-8")
-        self._process = subprocess.Popen(
-            [bin_path, "run", "-c", config_path],
-            stdout=subprocess.DEVNULL,
-            stderr=self._log_fh or subprocess.DEVNULL,
-        )
+            popen_kwargs["stdout"] = self._log_fh
+            popen_kwargs["stderr"] = subprocess.STDOUT
+        self._process = subprocess.Popen([bin_path, "run", "-c", config_path], **popen_kwargs)
         logger.info("xray 已启动 (PID=%d): %s", self._process.pid, config_path)
 
     def _close_log_fh(self) -> None:
