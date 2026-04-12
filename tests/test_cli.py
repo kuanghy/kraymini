@@ -53,7 +53,7 @@ class TestVersionCommand:
             main()
         assert exc_info.value.code == 0
         out = capsys.readouterr().out
-        assert "kraymini" in out and "0.1.1" in out
+        assert "kraymini" in out and "0.1.2" in out
 
 
 class TestGenconfigCommand:
