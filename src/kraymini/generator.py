@@ -253,12 +253,17 @@ def generate_fixed_outbounds() -> list[dict]:
     ]
 
 
-def generate_balancer(node_tags: list[str]) -> dict:
-    return {
+def generate_balancer(
+    node_tags: list[str], fallback_tag: str | None = None
+) -> dict:
+    balancer = {
         "tag": "balancer",
         "selector": node_tags,
         "strategy": {"type": "leastPing"},
     }
+    if fallback_tag:
+        balancer["fallbackTag"] = fallback_tag
+    return balancer
 
 
 def generate_observatory(node_tags: list[str], cfg: ObservatoryConfig) -> dict:
@@ -266,10 +271,15 @@ def generate_observatory(node_tags: list[str], cfg: ObservatoryConfig) -> dict:
         "subjectSelector": node_tags,
         "probeURL": cfg.probe_url,
         "probeInterval": cfg.probe_interval,
+        "enableConcurrency": cfg.enable_concurrency,
     }
 
 
-def generate_routing(cfg: RoutingConfig | None, node_tags: list[str]) -> dict:
+def generate_routing(
+    cfg: RoutingConfig | None,
+    node_tags: list[str],
+    fallback_tag: str | None = None,
+) -> dict:
     domain_strategy = "IPOnDemand"
     domain_matcher = "mph"
     if cfg is not None:
@@ -298,7 +308,7 @@ def generate_routing(cfg: RoutingConfig | None, node_tags: list[str]) -> dict:
         "domainStrategy": domain_strategy,
         "domainMatcher": domain_matcher,
         "rules": rules,
-        "balancers": [generate_balancer(node_tags)],
+        "balancers": [generate_balancer(node_tags, fallback_tag=fallback_tag)],
     }
 
 
@@ -339,8 +349,6 @@ def generate_stats_policy() -> tuple[dict, dict]:
 def generate_xray_config(cfg: KrayminiConfig, nodes: list[Node]) -> dict:
     outbounds: list[dict] = []
     if cfg.landing_proxy:
-        for node in nodes:
-            outbounds.append(generate_node_outbound(node, proxy_tag=None))
         balancer_tags: list[str] = []
         for node in nodes:
             ct = landing_chain_tag(node.remark)
@@ -348,14 +356,22 @@ def generate_xray_config(cfg: KrayminiConfig, nodes: list[Node]) -> dict:
             outbounds.append(
                 generate_landing_chain_outbound(cfg.landing_proxy, ct, node.remark)
             )
+        for node in nodes:
+            outbounds.append(generate_node_outbound(node, proxy_tag=None))
+        balancer_fallback_tag = "blocked"
     else:
         for node in nodes:
             outbounds.append(generate_node_outbound(node, proxy_tag=None))
         balancer_tags = [n.remark for n in nodes]
+        balancer_fallback_tag = None
 
     outbounds.extend(generate_fixed_outbounds())
 
-    routing = generate_routing(cfg.routing, balancer_tags)
+    routing = generate_routing(
+        cfg.routing,
+        balancer_tags,
+        fallback_tag=balancer_fallback_tag,
+    )
     observatory = generate_observatory(balancer_tags, cfg.observatory)
     dns = generate_dns(cfg.dns)
     api = generate_api()

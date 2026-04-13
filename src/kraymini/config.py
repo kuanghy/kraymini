@@ -125,6 +125,7 @@ class DnsConfig:
 class ObservatoryConfig:
     probe_url: str = "https://www.google.com/generate_204"
     probe_interval: str = "5m"
+    enable_concurrency: bool = True
 
 
 @dataclass

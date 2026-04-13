@@ -69,6 +69,12 @@ class TestConfigDataStructures:
         assert cfg.routing is None
         assert cfg.dns is None
 
+    def test_observatory_config_defaults(self):
+        cfg = ObservatoryConfig()
+        assert cfg.probe_url == "https://www.google.com/generate_204"
+        assert cfg.probe_interval == "5m"
+        assert cfg.enable_concurrency is True
+
 
 class TestLoadConfig:
     def test_load_minimal_config(self, write_config):
@@ -239,11 +245,13 @@ url = "https://example.com/sub"
 [observatory]
 probe_url = "https://cp.cloudflare.com"
 probe_interval = "3m"
+enable_concurrency = false
 """
         path = write_config(toml)
         cfg = load_config(path)
         assert cfg.observatory.probe_url == "https://cp.cloudflare.com"
         assert cfg.observatory.probe_interval == "3m"
+        assert cfg.observatory.enable_concurrency is False
 
     def test_load_log(self, write_config):
         toml = """

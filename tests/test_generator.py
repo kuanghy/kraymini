@@ -231,9 +231,21 @@ class TestBalancerAndObservatory:
         assert b["tag"] == "balancer" and b["selector"] == ["n1", "n2", "n3"]
         assert b["strategy"]["type"] == "leastPing"
 
+    def test_balancer_with_fallback(self):
+        b = generate_balancer(["n1"], fallback_tag="blocked")
+        assert b["fallbackTag"] == "blocked"
+
     def test_observatory(self):
         obs = generate_observatory(["n1"], ObservatoryConfig(probe_url="https://cp.cloudflare.com", probe_interval="3m"))
         assert obs["probeURL"] == "https://cp.cloudflare.com" and obs["probeInterval"] == "3m"
+        assert obs["enableConcurrency"] is True
+
+    def test_observatory_disable_concurrency(self):
+        obs = generate_observatory(
+            ["n1"],
+            ObservatoryConfig(enable_concurrency=False),
+        )
+        assert obs["enableConcurrency"] is False
 
 
 class TestGenerateRouting:
@@ -264,6 +276,10 @@ class TestGenerateRouting:
 
     def test_balancers(self):
         assert generate_routing(None, ["a", "b"])["balancers"][0]["selector"] == ["a", "b"]
+
+    def test_balancer_fallback(self):
+        balancer = generate_routing(None, ["a"], fallback_tag="blocked")["balancers"][0]
+        assert balancer["fallbackTag"] == "blocked"
 
 
 class TestGenerateDns:
@@ -325,12 +341,16 @@ class TestGenerateXrayConfig:
         tags = [o["tag"] for o in xray["outbounds"]]
         assert "LP-Via: node-1" in tags
         assert "landing-proxy" not in tags
+        assert tags[0] == "LP-Via: node-1"
+        assert tags[1] == "node-1"
         node_ob = next(o for o in xray["outbounds"] if o["tag"] == "node-1")
         assert "proxySettings" not in node_ob
         chain_ob = next(o for o in xray["outbounds"] if o["tag"] == "LP-Via: node-1")
         assert chain_ob["proxySettings"]["tag"] == "node-1"
         assert xray["routing"]["balancers"][0]["selector"] == ["LP-Via: node-1"]
+        assert xray["routing"]["balancers"][0]["fallbackTag"] == "blocked"
         assert xray["observatory"]["subjectSelector"] == ["LP-Via: node-1"]
+        assert xray["observatory"]["enableConcurrency"] is True
 
     def test_log_section(self):
         cfg = KrayminiConfig(
