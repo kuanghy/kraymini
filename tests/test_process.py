@@ -8,6 +8,10 @@ def fake_xray(tmp_path):
     script = tmp_path / "fake_xray"
     script.write_text(
         '#!/bin/sh\n'
+        'if [ "$1" = "version" ]; then\n'
+        '    echo "Xray 25.3.6"\n'
+        '    exit 0\n'
+        'fi\n'
         'if [ "$1" = "run" ] && [ "$2" = "-test" ]; then\n'
         '    echo "Configuration OK"\n'
         '    exit 0\n'
@@ -29,6 +33,11 @@ def bad_xray(tmp_path):
 
 
 class TestXrayProcess:
+    def test_check_available_logs_version(self, fake_xray, caplog):
+        caplog.set_level("INFO", logger="kraymini")
+        assert XrayProcess(fake_xray).check_available() is True
+        assert "Xray 25.3.6" in caplog.text
+
     def test_validate_pass(self, fake_xray, tmp_path):
         cfg = tmp_path / "xray.json"
         cfg.write_text("{}")

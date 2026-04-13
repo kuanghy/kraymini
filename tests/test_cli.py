@@ -1,8 +1,10 @@
 import sys
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from kraymini.cli import build_parser, main
+from kraymini.cli import build_parser, cmd_genconfig, main
+from kraymini.config import GeneralConfig, KrayminiConfig, SubscriptionConfig
 
 
 class TestBuildParser:
@@ -52,3 +54,33 @@ class TestVersionCommand:
         assert exc_info.value.code == 0
         out = capsys.readouterr().out
         assert "kraymini" in out and "0.1.1" in out
+
+
+class TestGenconfigCommand:
+    @patch("kraymini.process.XrayProcess.check_available", return_value=False)
+    @patch("kraymini.subscription.SubscriptionManager")
+    @patch("kraymini.cli.setup_logging")
+    @patch("kraymini.cli.load_config")
+    @patch("kraymini.cli.find_config")
+    def test_checks_xray_before_online_subscription_refresh(
+        self,
+        mock_find_config,
+        mock_load_config,
+        _mock_setup_logging,
+        mock_mgr_cls,
+        mock_check_available,
+        tmp_path,
+    ):
+        cfg = KrayminiConfig(
+            subscriptions=[SubscriptionConfig(url="https://example.com/sub")],
+            general=GeneralConfig(output_config=str(tmp_path / "xray.json")),
+        )
+        config_path = tmp_path / "config.toml"
+        config_path.write_text('[[subscriptions]]\nurl = "https://example.com/sub"\n')
+        mock_find_config.return_value = config_path
+        mock_load_config.return_value = cfg
+        mock_mgr_cls.return_value = MagicMock()
+
+        assert cmd_genconfig(str(config_path), None, offline=False) == 2
+        mock_check_available.assert_called_once_with()
+        mock_mgr_cls.return_value.refresh.assert_not_called()

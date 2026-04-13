@@ -11,9 +11,10 @@ from .log import setup_logging, logger
 
 
 def _add_common_cli_args(ap: argparse.ArgumentParser, *, for_subparser: bool = False) -> None:
-    """根解析器与各子解析器均注册，以支持 ``kraymini -c x run`` 与 ``kraymini run -c x``。
+    """根解析器与各子解析器均注册
 
-    子解析器上使用 ``argparse.SUPPRESS``，避免在未重复书写全局参数时用 ``None``/``False`` 覆盖根解析器结果。
+    子解析器上使用 ``argparse.SUPPRESS``，避免在未重复书写全局参数时，
+    用 ``None``/``False`` 覆盖根解析器结果
     """
     if for_subparser:
         ap.add_argument("-c", "--config", help="配置文件路径", default=argparse.SUPPRESS)
@@ -83,6 +84,7 @@ def cmd_genconfig(config_path: str | None, output: str | None, offline: bool) ->
 
     runtime_dir = str(Path(cfg.general.output_config).parent)
     Path(runtime_dir).expanduser().mkdir(parents=True, exist_ok=True)
+    xray = XrayProcess(cfg.general.xray_bin)
 
     if offline:
         cache_path = get_cache_path(str(path), runtime_dir)
@@ -91,6 +93,9 @@ def cmd_genconfig(config_path: str | None, output: str | None, offline: bool) ->
             print("离线模式: 缓存不存在", file=sys.stderr)
             return 2
     else:
+        if not xray.check_available():
+            logger.error("xray 不可用，停止订阅拉取")
+            return 2
         mgr = SubscriptionManager(cfg, str(path), runtime_dir=runtime_dir)
         nodes = mgr.refresh()
         if not nodes:
@@ -104,7 +109,6 @@ def cmd_genconfig(config_path: str | None, output: str | None, offline: bool) ->
     else:
         out_path = output or cfg.general.output_config
         written = write_xray_config(xray_config, out_path)
-        xray = XrayProcess(cfg.general.xray_bin)
         if xray.validate_config(written):
             logger.info("配置已生成并校验通过: %s", written)
         else:

@@ -77,7 +77,19 @@ class Daemon:
         select.select([self._pipe_r], [], [], timeout)
         self._drain_pipe()
 
+    def _check_xray_before_subscription(self, *, exit_on_fail: bool) -> bool:
+        if self.xray.check_available():
+            return True
+
+        if exit_on_fail:
+            logger.critical("xray 不可用，停止订阅拉取")
+            sys.exit(2)
+
+        logger.error("xray 不可用，跳过本次订阅刷新")
+        return False
+
     def initial_start(self) -> None:
+        self._check_xray_before_subscription(exit_on_fail=True)
         nodes = self.sub_mgr.refresh()
         if not nodes:
             logger.critical("订阅拉取失败且无可用缓存，无法生成配置")
@@ -91,11 +103,16 @@ class Daemon:
         self.xray.start(config_path, log_file=self.config.log.file)
 
     def _do_refresh(self) -> None:
+        if not self._check_xray_before_subscription(exit_on_fail=False):
+            return
         new_nodes = self.sub_mgr.refresh()
         if not new_nodes:
             logger.error("订阅拉取失败或无有效节点，保持当前配置继续运行")
             return
-        if not self.sub_mgr.nodes_changed(self.current_nodes, new_nodes) and not self.crash_monitor.is_suspended:
+        if (
+            not self.sub_mgr.nodes_changed(self.current_nodes, new_nodes)
+            and not self.crash_monitor.is_suspended
+        ):
             logger.info("节点列表无变化，跳过重载")
             return
         self.current_nodes = new_nodes
@@ -122,14 +139,22 @@ class Daemon:
             if not self.crash_monitor.is_suspended and not self.xray.is_running():
                 self.crash_monitor.record_crash()
                 if self.crash_monitor.is_suspended:
-                    logger.critical("xray 连续崩溃 %d 次，暂停重启，等待下次订阅刷新", self.crash_monitor.max_crashes)
+                    logger.critical(
+                        "xray 连续崩溃 %d 次，暂停重启，等待下次订阅刷新",
+                        self.crash_monitor.max_crashes,
+                    )
                 else:
                     logger.error("xray 意外退出，%ds 后重启", CRASH_RESTART_DELAY)
                     self._wait(CRASH_RESTART_DELAY)
                     if not self._running:
                         break
-                    self.xray.start(self.config.general.output_config, log_file=self.config.log.file)
-            need_refresh = self._force_refresh or (time.time() - last_refresh >= self.config.general.refresh_interval)
+                    self.xray.start(
+                        self.config.general.output_config,
+                        log_file=self.config.log.file,
+                    )
+            need_refresh = self._force_refresh or (
+                time.time() - last_refresh >= self.config.general.refresh_interval
+            )
             if not need_refresh:
                 continue
             self._force_refresh = False

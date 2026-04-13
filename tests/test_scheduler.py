@@ -93,3 +93,46 @@ class TestDaemon:
         daemon = Daemon(cfg, str(config_path))
         with pytest.raises(SystemExit):
             daemon.initial_start()
+
+    @patch("kraymini.process.XrayProcess.check_available", return_value=False)
+    @patch("kraymini.scheduler.SubscriptionManager")
+    def test_initial_start_checks_xray_before_refresh(
+        self,
+        mock_mgr_cls,
+        mock_check_available,
+        tmp_path,
+        fake_xray,
+    ):
+        mock_mgr = MagicMock()
+        mock_mgr_cls.return_value = mock_mgr
+        config_path = tmp_path / "config.toml"
+        config_path.write_text('[[subscriptions]]\nurl = "https://example.com/sub"\n')
+        cfg = self._make_config(tmp_path, fake_xray)
+        daemon = Daemon(cfg, str(config_path))
+        with pytest.raises(SystemExit):
+            daemon.initial_start()
+
+        mock_check_available.assert_called_once_with()
+        mock_mgr.refresh.assert_not_called()
+
+    @patch("kraymini.process.XrayProcess.check_available", return_value=False)
+    @patch("kraymini.scheduler.SubscriptionManager")
+    def test_refresh_checks_xray_before_subscription_refresh(
+        self,
+        mock_mgr_cls,
+        mock_check_available,
+        tmp_path,
+        fake_xray,
+    ):
+        mock_mgr = MagicMock()
+        mock_mgr_cls.return_value = mock_mgr
+        config_path = tmp_path / "config.toml"
+        config_path.write_text('[[subscriptions]]\nurl = "https://example.com/sub"\n')
+        cfg = self._make_config(tmp_path, fake_xray)
+        daemon = Daemon(cfg, str(config_path))
+        daemon.current_nodes = []
+
+        daemon._do_refresh()
+
+        mock_check_available.assert_called_once_with()
+        mock_mgr.refresh.assert_not_called()

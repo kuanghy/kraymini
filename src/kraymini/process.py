@@ -31,6 +31,39 @@ class XrayProcess:
             raise XrayError(f"xray 二进制不存在: 在 PATH 中找不到 {self.xray_bin!r}")
         return resolved
 
+    def check_available(self) -> bool:
+        try:
+            bin_path = self._resolve_bin()
+        except XrayError as e:
+            logger.error("%s", e)
+            return False
+
+        try:
+            result = subprocess.run(
+                [bin_path, "version"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except subprocess.TimeoutExpired:
+            logger.error("检查 xray 可用性超时: %s", bin_path)
+            return False
+        except OSError as e:
+            logger.error("执行 xray 失败: %s", e)
+            return False
+
+        version_output = (result.stdout or result.stderr).strip()
+        if result.returncode != 0:
+            logger.error("xray 不可用: %s", version_output or bin_path)
+            return False
+
+        if version_output:
+            version_line = version_output.splitlines()[0]
+            logger.info("xray 可用: %s", version_line)
+        else:
+            logger.info("xray 可用: %s", bin_path)
+        return True
+
     def validate_config(self, config_path: str) -> bool:
         try:
             bin_path = self._resolve_bin()
