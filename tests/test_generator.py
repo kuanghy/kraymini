@@ -26,6 +26,8 @@ from kraymini.config import (
     SecurityConfig,
     WsTransportConfig,
     GrpcTransportConfig,
+    XhttpTransportConfig,
+    HttpupgradeTransportConfig,
     ObservatoryConfig,
     RoutingConfig,
     RoutingRule,
@@ -165,6 +167,100 @@ class TestGenerateNodeOutbound:
         assert tcp["header"]["request"]["path"] == ["/fake/path.js"]
         assert tcp["header"]["request"]["headers"]["Host"] == ["cdn.example.com"]
 
+    def test_tuic(self):
+        node = Node(
+            raw_uri="tuic://...", remark="TUIC-JP", protocol="tuic",
+            address="tuic.example.com", port=443,
+            credentials={"uuid": "test-uuid", "password": "test-pw"},
+            transport={
+                "network": "tuic", "security": "tls",
+                "sni": "tuic.example.com", "insecure": False,
+                "fingerprint": "chrome", "alpn": "h3",
+                "congestion_control": "bbr", "udp_relay_mode": "native",
+                "zero_rtt": False,
+            },
+        )
+        ob = generate_node_outbound(node)
+        assert ob["tag"] == "TUIC-JP" and ob["protocol"] == "tuic"
+        s = ob["settings"]
+        assert s["server"] == "tuic.example.com" and s["port"] == 443
+        assert s["uuid"] == "test-uuid" and s["password"] == "test-pw"
+        assert s["congestionControl"] == "bbr" and s["udpRelayMode"] == "native"
+        assert "zeroRttHandshake" not in s
+        ss = ob["streamSettings"]
+        assert ss["network"] == "tuic" and ss["security"] == "tls"
+        assert ss["tlsSettings"]["serverName"] == "tuic.example.com"
+        assert ss["tlsSettings"]["alpn"] == ["h3"]
+
+    def test_tuic_zero_rtt(self):
+        node = Node(
+            raw_uri="tuic://...", remark="TUIC", protocol="tuic",
+            address="host", port=443,
+            credentials={"uuid": "u", "password": "p"},
+            transport={
+                "network": "tuic", "security": "tls", "sni": "host",
+                "insecure": False, "fingerprint": "chrome", "alpn": "",
+                "congestion_control": "cubic", "udp_relay_mode": "quic",
+                "zero_rtt": True,
+            },
+        )
+        ob = generate_node_outbound(node)
+        assert ob["settings"]["zeroRttHandshake"] is True
+        assert ob["settings"]["congestionControl"] == "cubic"
+        assert ob["settings"]["udpRelayMode"] == "quic"
+        # 未指定 alpn 时，tuic 默认使用 h3
+        assert ob["streamSettings"]["tlsSettings"]["alpn"] == ["h3"]
+
+    def test_xhttp(self):
+        node = Node(
+            raw_uri="vless://...", remark="XHTTP", protocol="vless",
+            address="cdn.example.com", port=443,
+            credentials={"uuid": "uuid", "encryption": "none"},
+            transport={
+                "network": "xhttp", "security": "tls", "sni": "cdn.example.com",
+                "fingerprint": "chrome", "alpn": "", "host": "cdn.example.com",
+                "path": "/xhttp", "header_type": "", "xhttp_mode": "auto",
+            },
+        )
+        ob = generate_node_outbound(node)
+        assert ob["streamSettings"]["network"] == "xhttp"
+        xs = ob["streamSettings"]["xhttpSettings"]
+        assert xs["host"] == "cdn.example.com"
+        assert xs["path"] == "/xhttp"
+        assert xs["mode"] == "auto"
+
+    def test_xhttp_no_mode(self):
+        node = Node(
+            raw_uri="vless://...", remark="XHTTP2", protocol="vless",
+            address="host", port=443,
+            credentials={"uuid": "uuid", "encryption": "none"},
+            transport={
+                "network": "xhttp", "security": "tls", "sni": "host",
+                "fingerprint": "chrome", "alpn": "", "host": "host",
+                "path": "/x", "header_type": "",
+            },
+        )
+        ob = generate_node_outbound(node)
+        xs = ob["streamSettings"]["xhttpSettings"]
+        assert "mode" not in xs
+
+    def test_httpupgrade(self):
+        node = Node(
+            raw_uri="vless://...", remark="HU", protocol="vless",
+            address="cdn.example.com", port=443,
+            credentials={"uuid": "uuid", "encryption": "none"},
+            transport={
+                "network": "httpupgrade", "security": "tls",
+                "sni": "cdn.example.com", "fingerprint": "chrome",
+                "alpn": "", "host": "cdn.example.com", "path": "/up",
+                "header_type": "",
+            },
+        )
+        ob = generate_node_outbound(node)
+        assert ob["streamSettings"]["network"] == "httpupgrade"
+        hu = ob["streamSettings"]["httpupgradeSettings"]
+        assert hu["host"] == "cdn.example.com" and hu["path"] == "/up"
+
     def test_proxy_settings(self):
         ob = generate_node_outbound(_vless_node(), proxy_tag="landing-proxy")
         assert ob["proxySettings"]["tag"] == "landing-proxy"
@@ -214,6 +310,36 @@ class TestLandingProxy:
         ob = generate_landing_proxy_outbound(lp)
         assert ob["streamSettings"]["grpcSettings"]["serviceName"] == "svc"
         assert ob["streamSettings"]["grpcSettings"]["multiMode"] is False
+
+    def test_vless_xhttp(self):
+        lp = LandingProxyConfig(
+            protocol="vless", address="cdn.host", port=443, uuid="uuid",
+            transport=TransportConfig(
+                network="xhttp",
+                xhttp=XhttpTransportConfig(path="/xhttp", host="cdn.host", mode="auto"),
+            ),
+            security=SecurityConfig(mode="tls", server_name="cdn.host"),
+        )
+        ob = generate_landing_proxy_outbound(lp)
+        ss = ob["streamSettings"]
+        assert ss["network"] == "xhttp"
+        assert ss["xhttpSettings"]["path"] == "/xhttp"
+        assert ss["xhttpSettings"]["mode"] == "auto"
+
+    def test_vless_httpupgrade(self):
+        lp = LandingProxyConfig(
+            protocol="vless", address="cdn.host", port=443, uuid="uuid",
+            transport=TransportConfig(
+                network="httpupgrade",
+                httpupgrade=HttpupgradeTransportConfig(path="/up", host="cdn.host"),
+            ),
+            security=SecurityConfig(mode="tls", server_name="cdn.host"),
+        )
+        ob = generate_landing_proxy_outbound(lp)
+        ss = ob["streamSettings"]
+        assert ss["network"] == "httpupgrade"
+        assert ss["httpupgradeSettings"]["path"] == "/up"
+        assert ss["httpupgradeSettings"]["host"] == "cdn.host"
 
 
 class TestFixedOutbounds:

@@ -73,6 +73,8 @@ def _build_stream_settings(transport: dict) -> dict:
             tls["alpn"] = [a.strip() for a in alpn.split(",")]
         elif network in ("grpc", "h2"):
             tls["alpn"] = ["h2"]
+        elif network == "tuic":
+            tls["alpn"] = ["h3"]
         else:
             tls["alpn"] = ["http/1.1"]
         ss["security"] = "tls"
@@ -119,6 +121,20 @@ def _build_stream_settings(transport: dict) -> dict:
         if host:
             h2s["host"] = [host] if isinstance(host, str) else host
         ss["httpSettings"] = h2s
+    elif network == "httpupgrade":
+        ss["httpupgradeSettings"] = {
+            "host": transport.get("host", ""),
+            "path": transport.get("path", "/"),
+        }
+    elif network == "xhttp":
+        xs: dict = {
+            "host": transport.get("host", ""),
+            "path": transport.get("path", "/"),
+        }
+        mode = transport.get("xhttp_mode", "")
+        if mode:
+            xs["mode"] = mode
+        ss["xhttpSettings"] = xs
 
     return ss
 
@@ -188,6 +204,23 @@ def generate_node_outbound(node: Node, proxy_tag: str | None = None) -> dict:
                 "password": node.transport.get("obfs_password", ""),
             }
         ob["settings"] = {"servers": [server]}
+    elif node.protocol == "tuic":
+        ob["protocol"] = "tuic"
+        tuic_settings: dict = {
+            "server": node.address,
+            "port": node.port,
+            "uuid": node.credentials.get("uuid", ""),
+            "password": node.credentials.get("password", ""),
+        }
+        congestion = node.transport.get("congestion_control", "bbr")
+        if congestion:
+            tuic_settings["congestionControl"] = congestion
+        udp_mode = node.transport.get("udp_relay_mode", "native")
+        if udp_mode:
+            tuic_settings["udpRelayMode"] = udp_mode
+        if node.transport.get("zero_rtt", False):
+            tuic_settings["zeroRttHandshake"] = True
+        ob["settings"] = tuic_settings
 
     ob["streamSettings"] = _build_stream_settings(node.transport)
 
@@ -214,6 +247,14 @@ def _build_landing_outbound_body(lp: LandingProxyConfig) -> dict:
     elif lp.transport.network == "h2" and lp.transport.h2:
         transport_dict["host"] = lp.transport.h2.host
         transport_dict["path"] = lp.transport.h2.path
+    elif lp.transport.network == "xhttp" and lp.transport.xhttp:
+        transport_dict["host"] = lp.transport.xhttp.host
+        transport_dict["path"] = lp.transport.xhttp.path
+        if lp.transport.xhttp.mode:
+            transport_dict["xhttp_mode"] = lp.transport.xhttp.mode
+    elif lp.transport.network == "httpupgrade" and lp.transport.httpupgrade:
+        transport_dict["host"] = lp.transport.httpupgrade.host
+        transport_dict["path"] = lp.transport.httpupgrade.path
     if lp.security.mode == "reality" and lp.security.reality:
         transport_dict["public_key"] = lp.security.reality.public_key
         transport_dict["short_id"] = lp.security.reality.short_id

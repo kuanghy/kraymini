@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ..models import Node
-from . import vmess, vless, trojan, shadowsocks, hysteria
+from . import vmess, vless, trojan, shadowsocks, hysteria, tuic
 
 PARSERS = {
     "vmess://": vmess,
@@ -9,6 +9,8 @@ PARSERS = {
     "trojan://": trojan,
     "ss://": shadowsocks,
     "hy2://": hysteria,
+    "hysteria2://": hysteria,
+    "tuic://": tuic,
 }
 
 

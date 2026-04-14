@@ -55,11 +55,26 @@ class H2TransportConfig:
 
 
 @dataclass
+class XhttpTransportConfig:
+    path: str = "/"
+    host: str = ""
+    mode: str = ""
+
+
+@dataclass
+class HttpupgradeTransportConfig:
+    path: str = "/"
+    host: str = ""
+
+
+@dataclass
 class TransportConfig:
     network: str = "tcp"
     ws: WsTransportConfig | None = None
     grpc: GrpcTransportConfig | None = None
     h2: H2TransportConfig | None = None
+    xhttp: XhttpTransportConfig | None = None
+    httpupgrade: HttpupgradeTransportConfig | None = None
 
 
 @dataclass
@@ -149,7 +164,7 @@ class KrayminiConfig:
 
 VALID_LOG_LEVELS = {"debug", "info", "warning", "error"}
 VALID_XRAY_LEVELS = {"debug", "info", "warning", "error", "none"}
-VALID_NETWORKS = {"tcp", "ws", "grpc", "h2"}
+VALID_NETWORKS = {"tcp", "ws", "grpc", "h2", "xhttp", "httpupgrade"}
 VALID_DOMAIN_STRATEGIES = {"AsIs", "IPIfNonMatch", "IPOnDemand"}
 VALID_DOMAIN_MATCHERS = {"linear", "mph"}
 VALID_OUTBOUND_TAGS = {"direct", "blocked"}
@@ -160,29 +175,88 @@ SEARCH_PATHS = [
     Path("/usr/local/etc/kraymini/config.toml"),
     Path("/etc/kraymini/config.toml"),
 ]
+TOP_LEVEL_KEYS = {
+    "general",
+    "subscriptions",
+    "inbound",
+    "landing_proxy",
+    "routing",
+    "dns",
+    "observatory",
+    "log",
+}
 
 
 def _expand_path(p: str) -> str:
     return str(Path(p).expanduser())
 
 
+def _known_keys(cls: type) -> set[str]:
+    return {f.name for f in fields(cls)}
+
+
+def _reject_unknown_keys(cls: type, data: dict, context: str) -> None:
+    unknown = sorted(set(data) - _known_keys(cls))
+    if unknown:
+        raise ConfigError(f"未知配置项: {context}.{unknown[0]}")
+
+
+def _reject_unknown_top_level(raw: dict) -> None:
+    unknown = sorted(set(raw) - TOP_LEVEL_KEYS)
+    if unknown:
+        raise ConfigError(f"未知配置项: {unknown[0]}")
+
+
 def _from_toml(cls: type, data: dict):
-    """从 TOML dict 构建 dataclass，忽略未知键，缺失键使用 dataclass 默认值"""
-    known = {f.name for f in fields(cls)}
-    return cls(**{k: v for k, v in data.items() if k in known})
+    """从 TOML dict 构建 dataclass，缺失键使用 dataclass 默认值"""
+    return cls(**{k: v for k, v in data.items() if k in _known_keys(cls)})
 
 
 def _load_transport(data: dict) -> TransportConfig:
+    _reject_unknown_keys(TransportConfig, data, "landing_proxy.transport")
+    if "ws" in data:
+        _reject_unknown_keys(
+            WsTransportConfig, data["ws"], "landing_proxy.transport.ws"
+        )
+    if "grpc" in data:
+        _reject_unknown_keys(
+            GrpcTransportConfig, data["grpc"], "landing_proxy.transport.grpc"
+        )
+    if "h2" in data:
+        _reject_unknown_keys(
+            H2TransportConfig, data["h2"], "landing_proxy.transport.h2"
+        )
+    if "xhttp" in data:
+        _reject_unknown_keys(
+            XhttpTransportConfig, data["xhttp"], "landing_proxy.transport.xhttp"
+        )
+    if "httpupgrade" in data:
+        _reject_unknown_keys(
+            HttpupgradeTransportConfig,
+            data["httpupgrade"],
+            "landing_proxy.transport.httpupgrade",
+        )
     ws = _from_toml(WsTransportConfig, data["ws"]) if "ws" in data else None
     grpc = _from_toml(GrpcTransportConfig, data["grpc"]) if "grpc" in data else None
     h2 = _from_toml(H2TransportConfig, data["h2"]) if "h2" in data else None
-    kwargs: dict = {"ws": ws, "grpc": grpc, "h2": h2}
+    xhttp = _from_toml(XhttpTransportConfig, data["xhttp"]) if "xhttp" in data else None
+    httpupgrade = (
+        _from_toml(HttpupgradeTransportConfig, data["httpupgrade"])
+        if "httpupgrade" in data
+        else None
+    )
+    kwargs: dict = {"ws": ws, "grpc": grpc, "h2": h2, "xhttp": xhttp, "httpupgrade": httpupgrade}
     if "network" in data:
         kwargs["network"] = data["network"]
     return TransportConfig(**kwargs)
 
 
 def _load_security(data: dict) -> SecurityConfig:
+    _reject_unknown_keys(SecurityConfig, data, "landing_proxy.security")
+    if "reality" in data:
+        _reject_unknown_keys(
+            RealityConfig, data["reality"], "landing_proxy.security.reality"
+        )
     reality = _from_toml(RealityConfig, data["reality"]) if "reality" in data else None
     flat = {k: v for k, v in data.items() if k != "reality"}
     sc = _from_toml(SecurityConfig, flat)
@@ -191,6 +265,7 @@ def _load_security(data: dict) -> SecurityConfig:
 
 
 def _load_landing_proxy(data: dict) -> LandingProxyConfig:
+    _reject_unknown_keys(LandingProxyConfig, data, "landing_proxy")
     transport = _load_transport(data.get("transport", {}))
     security = _load_security(data.get("security", {}))
     flat = {k: v for k, v in data.items() if k not in ("transport", "security")}
@@ -201,6 +276,9 @@ def _load_landing_proxy(data: dict) -> LandingProxyConfig:
 
 
 def _load_routing(data: dict) -> RoutingConfig:
+    _reject_unknown_keys(RoutingConfig, data, "routing")
+    for idx, rule_data in enumerate(data.get("rules", [])):
+        _reject_unknown_keys(RoutingRule, rule_data, f"routing.rules[{idx}]")
     try:
         rules = [_from_toml(RoutingRule, r) for r in data.get("rules", [])]
     except TypeError as e:
@@ -212,6 +290,9 @@ def _load_routing(data: dict) -> RoutingConfig:
 
 
 def _load_dns(data: dict) -> DnsConfig:
+    _reject_unknown_keys(DnsConfig, data, "dns")
+    for idx, server_data in enumerate(data.get("servers", [])):
+        _reject_unknown_keys(DnsServer, server_data, f"dns.servers[{idx}]")
     try:
         servers = [_from_toml(DnsServer, s) for s in data.get("servers", [])]
     except TypeError as e:
@@ -337,21 +418,37 @@ def load_config(path: str | Path) -> KrayminiConfig:
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"配置文件格式错误: {e}") from e
 
+    _reject_unknown_top_level(raw)
+    _reject_unknown_keys(GeneralConfig, raw.get("general", {}), "general")
+
     general = _from_toml(GeneralConfig, raw.get("general", {}))
     general.output_config = _expand_path(general.output_config)
 
+    for idx, subscription_data in enumerate(raw.get("subscriptions", [])):
+        _reject_unknown_keys(
+            SubscriptionConfig,
+            subscription_data,
+            f"subscriptions[{idx}]",
+        )
     try:
         subscriptions = [_from_toml(SubscriptionConfig, s) for s in raw.get("subscriptions", [])]
     except TypeError as e:
         raise ConfigError(f"订阅源配置不完整: {e}") from e
 
+    _reject_unknown_keys(InboundConfig, raw.get("inbound", {}), "inbound")
     inbound = _from_toml(InboundConfig, raw.get("inbound", {}))
 
     landing_proxy = _load_landing_proxy(raw["landing_proxy"]) if "landing_proxy" in raw else None
     routing = _load_routing(raw["routing"]) if "routing" in raw else None
     dns = _load_dns(raw["dns"]) if "dns" in raw else None
+    _reject_unknown_keys(
+        ObservatoryConfig,
+        raw.get("observatory", {}),
+        "observatory",
+    )
     observatory = _from_toml(ObservatoryConfig, raw.get("observatory", {}))
 
+    _reject_unknown_keys(LogConfig, raw.get("log", {}), "log")
     log = _from_toml(LogConfig, raw.get("log", {}))
     if log.file:
         log.file = _expand_path(log.file)

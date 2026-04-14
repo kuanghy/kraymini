@@ -21,7 +21,9 @@ def parse(uri: str) -> Node:
     address = parsed.hostname or ""
     port = parsed.port or 0
 
-    network = param("type", "tcp")
+    raw_network = param("type", "tcp")
+    # splithttp 是 xhttp 的别名，统一规范化
+    network = "xhttp" if raw_network == "splithttp" else raw_network
     security = param("security", "none")
 
     transport = {
@@ -37,6 +39,10 @@ def parse(uri: str) -> Node:
 
     if network == "grpc":
         transport["service_name"] = param("serviceName")
+    elif network == "xhttp":
+        mode = param("mode")
+        if mode:
+            transport["xhttp_mode"] = mode
 
     if security == "reality":
         transport["public_key"] = param("pbk")
