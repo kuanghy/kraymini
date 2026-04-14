@@ -18,7 +18,7 @@ class TestNode:
         assert node.credentials["uuid"] == "test-uuid"
         assert node.source == "provider-a"
 
-    def test_dedup_same_endpoint(self):
+    def test_dedup_uses_raw_uri(self):
         node1 = Node(
             raw_uri="vless://uuid@host:443?type=tcp#a",
             remark="a",
@@ -39,7 +39,7 @@ class TestNode:
             transport={},
             source="src2",
         )
-        assert node1.dedup_key == node2.dedup_key
+        assert node1.dedup_key != node2.dedup_key
 
     def test_dedup_different_endpoint(self):
         node1 = Node(

@@ -81,12 +81,12 @@ class TestFetchSubscription:
 
 
 class TestDeduplicateNodes:
-    def test_dedup_by_endpoint(self):
+    def test_dedup_by_raw_uri(self):
         n1 = Node(raw_uri="uri-1", remark="a", protocol="vless",
                   address="host1", port=443, credentials={"uuid": "u1"}, transport={})
         n2 = Node(raw_uri="uri-2", remark="b", protocol="vless",
                   address="host2", port=443, credentials={"uuid": "u2"}, transport={})
-        n3 = Node(raw_uri="uri-3", remark="c", protocol="vless",
+        n3 = Node(raw_uri="uri-1", remark="c", protocol="vless",
                   address="host1", port=443, credentials={"uuid": "u1"}, transport={})
         result = deduplicate_nodes([n1, n2, n3])
         assert len(result) == 2
@@ -97,6 +97,27 @@ class TestDeduplicateNodes:
                   address="host", port=443, credentials={"uuid": "uuid-1"}, transport={})
         n2 = Node(raw_uri="vless://uuid2@host:443", remark="b", protocol="vless",
                   address="host", port=443, credentials={"uuid": "uuid-2"}, transport={})
+        assert len(deduplicate_nodes([n1, n2])) == 2
+
+    def test_same_endpoint_different_transport_kept(self):
+        n1 = Node(
+            raw_uri="vless://uuid@host:443?type=tcp#tcp",
+            remark="tcp",
+            protocol="vless",
+            address="host",
+            port=443,
+            credentials={"uuid": "uuid-1"},
+            transport={"network": "tcp"},
+        )
+        n2 = Node(
+            raw_uri="vless://uuid@host:443?type=ws&path=%2Fws#ws",
+            remark="ws",
+            protocol="vless",
+            address="host",
+            port=443,
+            credentials={"uuid": "uuid-1"},
+            transport={"network": "ws", "path": "/ws"},
+        )
         assert len(deduplicate_nodes([n1, n2])) == 2
 
 
@@ -256,3 +277,30 @@ class TestSubscriptionManager:
         assert mgr.nodes_changed(None, nodes1) is True
         assert mgr.nodes_changed(nodes1, nodes1) is False
         assert mgr.nodes_changed(nodes1, [_node("diff-uri")]) is True
+
+    def test_nodes_changed_when_transport_changes(self, tmp_path):
+        cfg, cp = self._make_config(tmp_path)
+        mgr = SubscriptionManager(cfg, str(cp), runtime_dir=str(tmp_path))
+        old = [
+            Node(
+                raw_uri="vless://uuid@host:443?type=tcp#n1",
+                remark="n1",
+                protocol="vless",
+                address="host",
+                port=443,
+                credentials={"uuid": "uuid"},
+                transport={"network": "tcp"},
+            )
+        ]
+        new = [
+            Node(
+                raw_uri="vless://uuid@host:443?type=ws&path=%2Fws#n1",
+                remark="n1",
+                protocol="vless",
+                address="host",
+                port=443,
+                credentials={"uuid": "uuid"},
+                transport={"network": "ws", "path": "/ws"},
+            )
+        ]
+        assert mgr.nodes_changed(old, new) is True

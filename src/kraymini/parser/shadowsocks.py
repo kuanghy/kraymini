@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from urllib.parse import unquote
 
 from ..models import Node
 from ._utils import split_fragment
@@ -23,7 +24,10 @@ def parse(uri: str) -> Node:
 
     if "@" in body:
         user_part, server_part = body.rsplit("@", 1)
-        decoded_user = _b64decode(user_part)
+        if ":" in user_part:
+            decoded_user = unquote(user_part)
+        else:
+            decoded_user = _b64decode(user_part)
         method, password = decoded_user.split(":", 1)
         host_port = server_part.split("?")[0]
         host, port_str = host_port.rsplit(":", 1)

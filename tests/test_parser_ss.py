@@ -18,3 +18,9 @@ class TestSSParser:
     def test_no_remark(self):
         u = base64.urlsafe_b64encode(b"aes-256-gcm:pw").decode().rstrip("=")
         assert parse(f"ss://{u}@host:443").remark == ""
+
+    def test_plain_sip002_userinfo(self):
+        node = parse("ss://aes-256-gcm:my-pw@ss.com:8388#SS-HK")
+        assert node.credentials["method"] == "aes-256-gcm"
+        assert node.credentials["password"] == "my-pw"
+        assert node.address == "ss.com"

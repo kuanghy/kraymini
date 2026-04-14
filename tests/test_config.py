@@ -292,6 +292,16 @@ url = "https://example.com/sub"
         with pytest.raises(ConfigError, match="配置文件不存在"):
             load_config(path)
 
+    def test_unknown_top_level_section_rejected(self, write_config):
+        path = write_config('[[subscriptions]]\nurl = "https://example.com/sub"\n\n[generel]\noutput_config = "/tmp/xray.json"\n')
+        with pytest.raises(ConfigError, match="未知配置项.*generel"):
+            load_config(path)
+
+    def test_unknown_nested_field_rejected(self, write_config):
+        path = write_config('[[subscriptions]]\nurl = "https://example.com/sub"\n\n[general]\noutput_confgi = "/tmp/xray.json"\n')
+        with pytest.raises(ConfigError, match="未知配置项.*general.output_confgi"):
+            load_config(path)
+
 
 class TestValidateConfig:
     def test_no_subscriptions(self, write_config):

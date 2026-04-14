@@ -1,4 +1,7 @@
+from kraymini.parser import parse_uri
 from kraymini.parser.hysteria import parse
+
+
 class TestHysteria2Parser:
     def test_basic(self):
         node = parse("hy2://my-pw@hy2.com:443?sni=hy2.com&insecure=0#HY2-JP")
@@ -10,3 +13,7 @@ class TestHysteria2Parser:
         assert parse("hy2://pw@host:443?insecure=1#t").transport["insecure"] is True
     def test_encoded_remark(self):
         assert parse("hy2://pw@host:443#%E9%A6%99%E6%B8%AF").remark == "香港"
+
+    def test_registry_supports_hysteria2_prefix(self):
+        node = parse_uri("hysteria2://pw@host:443?sni=host#HY2")
+        assert node.protocol == "hysteria2"
