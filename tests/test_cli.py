@@ -1,10 +1,11 @@
+import platform
 import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from kraymini import __version__
-from kraymini.cli import build_parser, cmd_genconfig, main
+from kraymini.cli import build_parser, cmd_genconfig, cmd_run, main
 from kraymini.config import GeneralConfig, KrayminiConfig, SubscriptionConfig
 
 
@@ -55,6 +56,41 @@ class TestVersionCommand:
         assert exc_info.value.code == 0
         out = capsys.readouterr().out
         assert "kraymini" in out and __version__ in out
+
+
+class TestRunCommand:
+    @patch("kraymini.scheduler.Daemon")
+    @patch("kraymini.cli.logger.info")
+    @patch("kraymini.cli.setup_logging")
+    @patch("kraymini.cli.load_config")
+    @patch("kraymini.cli.find_config")
+    def test_logs_version_and_python_on_startup(
+        self,
+        mock_find_config,
+        mock_load_config,
+        _mock_setup_logging,
+        mock_logger_info,
+        mock_daemon_cls,
+        tmp_path,
+    ):
+        cfg = KrayminiConfig(
+            subscriptions=[SubscriptionConfig(url="https://example.com/sub")],
+            general=GeneralConfig(output_config=str(tmp_path / "xray.json")),
+        )
+        config_path = tmp_path / "config.toml"
+        config_path.write_text('[[subscriptions]]\nurl = "https://example.com/sub"\n')
+        mock_find_config.return_value = config_path
+        mock_load_config.return_value = cfg
+
+        assert cmd_run(str(config_path)) == 0
+
+        mock_logger_info.assert_called_once_with(
+            "Kraymini version %s, using Python %s",
+            __version__,
+            platform.python_version(),
+        )
+        mock_daemon_cls.assert_called_once_with(cfg, str(config_path))
+        mock_daemon_cls.return_value.run.assert_called_once_with()
 
 
 class TestGenconfigCommand:

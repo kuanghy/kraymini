@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import platform
 import sys
 from pathlib import Path
 
@@ -127,6 +128,8 @@ def cmd_run(config_path: str | None) -> int:
         return 1
 
     setup_logging(level=cfg.log.level, log_file=cfg.log.file)
+    logger.info("Kraymini version %s, using Python %s",
+                __version__, platform.python_version())
 
     runtime_dir = str(Path(cfg.general.output_config).parent)
     Path(runtime_dir).expanduser().mkdir(parents=True, exist_ok=True)
