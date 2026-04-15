@@ -56,17 +56,16 @@ def _vless_node(remark="node-1", address="host1", port=443):
 class TestGenerateInbounds:
     def test_default(self):
         ibs = generate_inbounds(InboundConfig())
-        assert len(ibs) == 3
+        assert len(ibs) == 2
         api = next(i for i in ibs if i["tag"] == "in-api")
         assert api["protocol"] == "dokodemo-door" and api["port"] == 10810
-        socks = next(i for i in ibs if i["tag"] == "in-socks")
-        assert socks["protocol"] == "socks" and socks["sniffing"]["enabled"] is True
-        http = next(i for i in ibs if i["tag"] == "in-http")
-        assert http["protocol"] == "http" and http["port"] == 10809
+        mixed = next(i for i in ibs if i["tag"] == "in-mixed")
+        assert mixed["protocol"] == "mixed" and mixed["port"] == 10808
+        assert mixed["sniffing"]["enabled"] is True
 
     def test_sniffing_disabled(self):
-        socks = next(i for i in generate_inbounds(InboundConfig(sniffing=False)) if i["tag"] == "in-socks")
-        assert socks.get("sniffing", {}).get("enabled") is not True
+        mixed = next(i for i in generate_inbounds(InboundConfig(sniffing=False)) if i["tag"] == "in-mixed")
+        assert mixed.get("sniffing", {}).get("enabled") is not True
 
     def test_custom_listen(self):
         for ib in generate_inbounds(InboundConfig(listen="0.0.0.0")):
@@ -397,8 +396,8 @@ class TestGenerateRouting:
         assert rule["ip"] == ["geoip:cn"] and rule["network"] == "tcp,udp"
 
     def test_rule_with_inbound_tag(self):
-        cfg = RoutingConfig(rules=[RoutingRule(outbound_tag="direct", inbound_tag=["in-socks"])])
-        assert generate_routing(cfg, [])["rules"][1]["inboundTag"] == ["in-socks"]
+        cfg = RoutingConfig(rules=[RoutingRule(outbound_tag="direct", inbound_tag=["in-mixed"])])
+        assert generate_routing(cfg, [])["rules"][1]["inboundTag"] == ["in-mixed"]
 
     def test_balancers(self):
         assert generate_routing(None, ["a", "b"])["balancers"][0]["selector"] == ["a", "b"]
@@ -443,7 +442,7 @@ class TestGenerateXrayConfig:
     def test_minimal(self):
         cfg = KrayminiConfig(subscriptions=[SubscriptionConfig(url="https://example.com/sub")])
         xray = generate_xray_config(cfg, [_vless_node("n1"), _vless_node("n2", "host2")])
-        assert len(xray["inbounds"]) == 3
+        assert len(xray["inbounds"]) == 2
         tags = [o["tag"] for o in xray["outbounds"]]
         assert "n1" in tags and "n2" in tags and "direct" in tags and "blocked" in tags
         assert "landing-proxy" not in tags

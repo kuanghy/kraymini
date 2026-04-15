@@ -132,10 +132,15 @@ class TestAssignNames:
         assert assign_names(nodes)[0].remark == "sub-0"
 
     def test_reserved_tag_conflict(self):
-        nodes = [_node("uri-1", remark="direct"), _node("uri-2", remark="blocked")]
+        nodes = [
+            _node("uri-1", remark="direct"),
+            _node("uri-2", remark="blocked"),
+            _node("uri-3", remark="in-mixed"),
+        ]
         result = assign_names(nodes)
         assert result[0].remark == "direct_node"
         assert result[1].remark == "blocked_node"
+        assert result[2].remark == "in-mixed_node"
 
     def test_duplicate_names(self):
         nodes = [_node("u1", "香港-01"), _node("u2", "香港-01"), _node("u3", "香港-01")]

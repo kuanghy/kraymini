@@ -30,8 +30,7 @@ class SubscriptionConfig:
 @dataclass
 class InboundConfig:
     listen: str = "127.0.0.1"
-    socks_port: int = 10808
-    http_port: int = 10809
+    mixed_port: int = 10808
     api_port: int = 10810
     sniffing: bool = True
 
@@ -312,12 +311,12 @@ def _validate_config(cfg: KrayminiConfig) -> None:
         if not sub.url.strip().startswith(("http://", "https://")):
             raise ConfigError(f"订阅源 url 格式不正确: {sub.url!r}")
 
-    ports = [cfg.inbound.socks_port, cfg.inbound.http_port, cfg.inbound.api_port]
+    ports = [cfg.inbound.mixed_port, cfg.inbound.api_port]
     for p in ports:
         if not (1 <= p <= 65535):
             raise ConfigError(f"端口 {p} 超出有效范围 (1-65535)")
     if len(set(ports)) != len(ports):
-        raise ConfigError("端口配置存在冲突，三个端口必须互不相同")
+        raise ConfigError("端口配置存在冲突，mixed_port 和 api_port 必须互不相同")
 
     try:
         ipaddress.ip_address(cfg.inbound.listen)

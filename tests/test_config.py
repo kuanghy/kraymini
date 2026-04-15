@@ -35,8 +35,7 @@ class TestConfigDataStructures:
     def test_inbound_config_defaults(self):
         cfg = InboundConfig()
         assert cfg.listen == "127.0.0.1"
-        assert cfg.socks_port == 10808
-        assert cfg.http_port == 10809
+        assert cfg.mixed_port == 10808
         assert cfg.api_port == 10810
         assert cfg.sniffing is True
 
@@ -83,7 +82,7 @@ class TestLoadConfig:
         assert len(cfg.subscriptions) == 1
         assert cfg.subscriptions[0].url == "https://example.com/sub"
         assert cfg.general.xray_bin == "xray"
-        assert cfg.inbound.socks_port == 10808
+        assert cfg.inbound.mixed_port == 10808
 
     def test_load_full_general(self, write_config):
         toml = """
@@ -112,15 +111,14 @@ url = "https://example.com/sub"
 
 [inbound]
 listen = "0.0.0.0"
-socks_port = 1080
-http_port = 1081
+mixed_port = 1080
 api_port = 1082
 sniffing = false
 """
         path = write_config(toml)
         cfg = load_config(path)
         assert cfg.inbound.listen == "0.0.0.0"
-        assert cfg.inbound.socks_port == 1080
+        assert cfg.inbound.mixed_port == 1080
         assert cfg.inbound.sniffing is False
 
     def test_load_landing_proxy_trojan(self, write_config):
@@ -315,13 +313,13 @@ class TestValidateConfig:
             load_config(path)
 
     def test_invalid_port_range(self, write_config):
-        toml = '[[subscriptions]]\nurl = "https://example.com/sub"\n\n[inbound]\nsocks_port = 70000\n'
+        toml = '[[subscriptions]]\nurl = "https://example.com/sub"\n\n[inbound]\nmixed_port = 70000\n'
         path = write_config(toml)
         with pytest.raises(ConfigError, match="端口.*范围"):
             load_config(path)
 
     def test_port_conflict(self, write_config):
-        toml = '[[subscriptions]]\nurl = "https://example.com/sub"\n\n[inbound]\nsocks_port = 10808\nhttp_port = 10808\n'
+        toml = '[[subscriptions]]\nurl = "https://example.com/sub"\n\n[inbound]\nmixed_port = 10808\napi_port = 10808\n'
         path = write_config(toml)
         with pytest.raises(ConfigError, match="端口.*冲突"):
             load_config(path)

@@ -33,27 +33,17 @@ def generate_inbounds(cfg: InboundConfig) -> list[dict]:
     if cfg.sniffing:
         sniffing_cfg = {"enabled": True, "destOverride": ["http", "tls"]}
 
-    socks_ib: dict = {
-        "tag": "in-socks",
-        "protocol": "socks",
+    mixed_ib: dict = {
+        "tag": "in-mixed",
+        "protocol": "mixed",
         "listen": cfg.listen,
-        "port": cfg.socks_port,
+        "port": cfg.mixed_port,
         "settings": {"udp": True},
     }
     if sniffing_cfg:
-        socks_ib["sniffing"] = sniffing_cfg
+        mixed_ib["sniffing"] = sniffing_cfg
 
-    http_ib: dict = {
-        "tag": "in-http",
-        "protocol": "http",
-        "listen": cfg.listen,
-        "port": cfg.http_port,
-    }
-    if sniffing_cfg:
-        http_ib["sniffing"] = sniffing_cfg
-
-    inbounds.append(socks_ib)
-    inbounds.append(http_ib)
+    inbounds.append(mixed_ib)
     return inbounds
 
 

@@ -38,8 +38,8 @@ name = "主力机场"
 # =============================================================================
 [inbound]
 listen = "127.0.0.1"
-socks_port = 10808
-http_port = 10809
+# mixed_port 同时监听 socks 和 http 代理
+mixed_port = 10808
 api_port = 10810
 sniffing = true
 

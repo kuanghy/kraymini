@@ -19,7 +19,7 @@ from .parser import parse_uri, ParseError
 
 RESERVED_TAGS = {
     "landing-proxy", "direct", "blocked", "api", "balancer",
-    "in-api", "in-socks", "in-http",
+    "in-api", "in-mixed",
 }
 
 
