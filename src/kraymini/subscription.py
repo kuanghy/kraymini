@@ -6,6 +6,7 @@ import json
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import URLError, HTTPError
 from urllib.request import Request, urlopen
@@ -127,7 +128,10 @@ def get_cache_path(config_path: str, runtime_dir: str = "~/.kraymini") -> Path:
 
 
 def save_cache(nodes: list[Node], path: Path) -> None:
-    data = [node.to_dict() for node in nodes]
+    data = {
+        "saved_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "nodes": [node.to_dict() for node in nodes],
+    }
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_suffix(".tmp")
     tmp_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
@@ -135,19 +139,35 @@ def save_cache(nodes: list[Node], path: Path) -> None:
     logger.info("节点缓存已保存: %s (%d 个节点)", path, len(nodes))
 
 
-def load_cache(path: Path) -> list[Node] | None:
+def load_cache_payload(path: Path) -> tuple[list[Node], str | None] | None:
     if not path.exists():
         return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(data, list):
+        if isinstance(data, list):
+            nodes_data = data
+            saved_at = None
+        elif isinstance(data, dict):
+            nodes_data = data.get("nodes")
+            saved_at = data.get("saved_at")
+        else:
             raise ValueError("缓存数据格式错误")
-        nodes = [Node.from_dict(d) for d in data]
+        if not isinstance(nodes_data, list):
+            raise ValueError("缓存节点数据格式错误")
+        nodes = [Node.from_dict(d) for d in nodes_data]
         logger.info("已加载节点缓存: %s (%d 个节点)", path, len(nodes))
-        return nodes
+        return nodes, saved_at if isinstance(saved_at, str) and saved_at else None
     except Exception as e:
         logger.warning("缓存文件损坏，将忽略: %s - %s", path, e)
         return None
+
+
+def load_cache(path: Path) -> list[Node] | None:
+    payload = load_cache_payload(path)
+    if payload is None:
+        return None
+    nodes, _saved_at = payload
+    return nodes
 
 
 def _log_node(node: Node) -> None:

@@ -1,12 +1,15 @@
 import platform
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from kraymini import __version__
-from kraymini.cli import build_parser, cmd_genconfig, cmd_run, main
+from kraymini.cli import build_parser, cmd_genconfig, cmd_nodes, cmd_run, main
 from kraymini.config import GeneralConfig, KrayminiConfig, SubscriptionConfig
+from kraymini.models import Node
+from kraymini.subscription import save_cache
 
 
 class TestBuildParser:
@@ -29,6 +32,12 @@ class TestBuildParser:
 
     def test_verbose(self):
         assert build_parser().parse_args(["-v", "run"]).verbose is True
+
+    def test_nodes(self):
+        args = build_parser().parse_args(["nodes", "--refresh", "--json"])
+        assert args.command == "nodes"
+        assert args.refresh is True
+        assert args.json is True
 
 
 class TestCheckCommand:
@@ -95,7 +104,7 @@ class TestRunCommand:
 
 class TestGenconfigCommand:
     @patch("kraymini.process.XrayProcess.check_available", return_value=False)
-    @patch("kraymini.subscription.SubscriptionManager")
+    @patch("kraymini.cli.SubscriptionManager")
     @patch("kraymini.cli.setup_logging")
     @patch("kraymini.cli.load_config")
     @patch("kraymini.cli.find_config")
@@ -121,3 +130,144 @@ class TestGenconfigCommand:
         assert cmd_genconfig(str(config_path), None, offline=False) == 2
         mock_check_available.assert_called_once_with()
         mock_mgr_cls.return_value.refresh.assert_not_called()
+
+    @patch("kraymini.process.XrayProcess.validate_config", return_value=True)
+    @patch("kraymini.cli.setup_logging")
+    @patch("kraymini.cli.load_config")
+    @patch("kraymini.cli.find_config")
+    def test_offline_genconfig_reports_cache_saved_at(
+        self,
+        mock_find_config,
+        mock_load_config,
+        _mock_setup_logging,
+        _mock_validate_config,
+        tmp_path,
+        capsys,
+    ):
+        cfg = KrayminiConfig(
+            subscriptions=[SubscriptionConfig(url="https://example.com/sub")],
+            general=GeneralConfig(output_config=str(tmp_path / "xray.json")),
+        )
+        config_path = tmp_path / "config.toml"
+        config_path.write_text('[[subscriptions]]\nurl = "https://example.com/sub"\n')
+        mock_find_config.return_value = config_path
+        mock_load_config.return_value = cfg
+        cache_path = tmp_path / "nodes-cache-test.json"
+        save_cache([Node(
+            raw_uri="vless://uuid@host:443?type=tcp&security=none#node-1",
+            remark="node-1",
+            protocol="vless",
+            address="host",
+            port=443,
+            credentials={"uuid": "uuid"},
+            transport={"network": "tcp"},
+            source="test",
+        )], cache_path)
+
+        with patch("kraymini.cli.get_cache_path", return_value=cache_path):
+            assert cmd_genconfig(str(config_path), None, offline=True) == 0
+
+        assert "使用本地缓存（保存于" in capsys.readouterr().err
+
+
+class TestNodesCommand:
+    def _node(self, uri="vless://uuid@host:443?type=tcp&security=none#node-1", remark="node-1", source="test"):
+        return Node(
+            raw_uri=uri,
+            remark=remark,
+            protocol="vless",
+            address="host",
+            port=443,
+            credentials={"uuid": "uuid"},
+            transport={"network": "tcp"},
+            source=source,
+        )
+
+    @patch("kraymini.cli.setup_logging")
+    @patch("kraymini.cli.load_config")
+    @patch("kraymini.cli.find_config")
+    def test_reads_cache_by_default(
+        self,
+        mock_find_config,
+        mock_load_config,
+        _mock_setup_logging,
+        tmp_path,
+        capsys,
+    ):
+        cfg = KrayminiConfig(
+            subscriptions=[SubscriptionConfig(url="https://example.com/sub")],
+            general=GeneralConfig(output_config=str(tmp_path / "xray.json")),
+        )
+        config_path = tmp_path / "config.toml"
+        config_path.write_text('[[subscriptions]]\nurl = "https://example.com/sub"\n')
+        mock_find_config.return_value = config_path
+        mock_load_config.return_value = cfg
+        cache_path = tmp_path / "nodes-cache-test.json"
+        save_cache([self._node()], cache_path)
+
+        with patch("kraymini.cli.get_cache_path", return_value=cache_path):
+            assert cmd_nodes(str(config_path), refresh=False, as_json=False) == 0
+
+        out = capsys.readouterr().out
+        assert "node-1" in out
+        assert "共 1 个节点" in out
+
+    @patch("kraymini.cli.setup_logging")
+    @patch("kraymini.cli.load_config")
+    @patch("kraymini.cli.find_config")
+    def test_returns_2_when_cache_missing(
+        self,
+        mock_find_config,
+        mock_load_config,
+        _mock_setup_logging,
+        tmp_path,
+        capsys,
+    ):
+        cfg = KrayminiConfig(
+            subscriptions=[SubscriptionConfig(url="https://example.com/sub")],
+            general=GeneralConfig(output_config=str(tmp_path / "xray.json")),
+        )
+        config_path = tmp_path / "config.toml"
+        config_path.write_text('[[subscriptions]]\nurl = "https://example.com/sub"\n')
+        mock_find_config.return_value = config_path
+        mock_load_config.return_value = cfg
+
+        with patch(
+            "kraymini.cli.get_cache_path",
+            return_value=tmp_path / "missing-cache.json",
+        ):
+            assert cmd_nodes(str(config_path), refresh=False, as_json=False) == 2
+
+        assert "缓存不存在" in capsys.readouterr().err
+
+    @patch("kraymini.cli.SubscriptionManager")
+    @patch("kraymini.cli.setup_logging")
+    @patch("kraymini.cli.load_config")
+    @patch("kraymini.cli.find_config")
+    def test_refresh_uses_subscription_manager(
+        self,
+        mock_find_config,
+        mock_load_config,
+        _mock_setup_logging,
+        mock_mgr_cls,
+        tmp_path,
+        capsys,
+    ):
+        cfg = KrayminiConfig(
+            subscriptions=[SubscriptionConfig(url="https://example.com/sub")],
+            general=GeneralConfig(output_config=str(tmp_path / "xray.json")),
+        )
+        config_path = tmp_path / "config.toml"
+        config_path.write_text('[[subscriptions]]\nurl = "https://example.com/sub"\n')
+        mock_find_config.return_value = config_path
+        mock_load_config.return_value = cfg
+        mock_mgr = MagicMock()
+        mock_mgr.refresh.return_value = [self._node()]
+        mock_mgr_cls.return_value = mock_mgr
+
+        assert cmd_nodes(str(config_path), refresh=True, as_json=True) == 0
+
+        out = capsys.readouterr().out
+        assert '"remark": "node-1"' in out
+        mock_mgr_cls.assert_called_once_with(cfg, str(config_path), runtime_dir=str(tmp_path))
+        mock_mgr.refresh.assert_called_once_with()

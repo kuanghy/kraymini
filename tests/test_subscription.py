@@ -1,4 +1,5 @@
 import base64
+import json
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
@@ -9,7 +10,7 @@ import pytest
 from kraymini.subscription import (
     fetch_subscription, FetchError,
     deduplicate_nodes, assign_names, filter_nodes,
-    save_cache, load_cache, get_cache_path,
+    save_cache, load_cache, load_cache_payload, get_cache_path,
     SubscriptionManager,
 )
 from kraymini.models import Node
@@ -194,12 +195,45 @@ class TestFilterNodes:
 
 
 class TestNodeCache:
+    def test_save_cache_stores_saved_at_and_nodes(self, tmp_path):
+        nodes = [_node("uri-1", "node1", "src1"), _node("uri-2", "node2", "src2")]
+        cache_path = tmp_path / "cache.json"
+        save_cache(nodes, cache_path)
+        raw = json.loads(cache_path.read_text(encoding="utf-8"))
+        assert set(raw) == {"saved_at", "nodes"}
+        assert raw["saved_at"]
+        assert raw["nodes"][0]["raw_uri"] == "uri-1"
+
+    def test_load_cache_payload_returns_nodes_and_saved_at(self, tmp_path):
+        nodes = [_node("uri-1", "node1", "src1")]
+        cache_path = tmp_path / "cache.json"
+        save_cache(nodes, cache_path)
+        payload = load_cache_payload(cache_path)
+        assert payload is not None
+        loaded_nodes, saved_at = payload
+        assert len(loaded_nodes) == 1
+        assert loaded_nodes[0].raw_uri == "uri-1"
+        assert saved_at
+
     def test_save_and_load(self, tmp_path):
         nodes = [_node("uri-1", "node1", "src1"), _node("uri-2", "node2", "src2")]
         cache_path = tmp_path / "cache.json"
         save_cache(nodes, cache_path)
         loaded = load_cache(cache_path)
         assert len(loaded) == 2 and loaded[0].raw_uri == "uri-1"
+
+    def test_load_legacy_list_cache(self, tmp_path):
+        p = tmp_path / "legacy.json"
+        p.write_text(
+            json.dumps([_node("uri-1", "node1", "src1").to_dict()], ensure_ascii=False),
+            encoding="utf-8",
+        )
+        payload = load_cache_payload(p)
+        assert payload is not None
+        loaded, saved_at = payload
+        assert len(loaded) == 1
+        assert loaded[0].raw_uri == "uri-1"
+        assert saved_at is None
 
     def test_load_nonexistent(self, tmp_path):
         assert load_cache(tmp_path / "no.json") is None

@@ -27,5 +27,11 @@ kraymini run -c config.toml
 
 - `kraymini run` — 长驻运行模式
 - `kraymini genconfig` — 仅生成配置文件
+- `kraymini nodes` — 查看当前缓存节点，可加 `--refresh` 在线刷新
 - `kraymini check` — 校验配置文件
 - `kraymini version` — 输出版本信息
+
+## 部署示例
+
+- `deploy/kraymini.supervisor.conf`
+- `deploy/kraymini.service`
