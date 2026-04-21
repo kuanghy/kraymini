@@ -120,16 +120,14 @@ class Daemon:
         if now - self._last_stats_log < STATS_LOG_INTERVAL:
             return
         self._last_stats_log = now
-        endpoint = self._stats_endpoint()
-        logger.debug("流量统计查询: endpoint=%s", endpoint)
         result = query_inbound_traffic(
             self.config.general.xray_bin,
-            endpoint,
+            self._stats_endpoint(),
             STATS_INBOUND_TAG,
             timeout=STATS_QUERY_TIMEOUT,
         )
+        # 失败时 query_inbound_traffic 内部已输出带上下文的 WARNING，此处不再重复
         if result is None:
-            logger.warning("流量统计查询失败 (endpoint=%s)", endpoint)
             return
         uplink, downlink = result
         logger.info("%s", format_traffic_log(uplink, downlink))

@@ -44,11 +44,12 @@ def _call():
 
 
 class TestQueryInboundTraffic:
-    def test_success(self, monkeypatch, fake_bin):
+    def test_success_with_int_value(self, monkeypatch, fake_bin):
+        """xray 26.x 的 statsquery 计数器值是 JSON 数字。"""
         payload = {
             "stat": [
-                {"name": "inbound>>>in-mixed>>>traffic>>>uplink", "value": "100"},
-                {"name": "inbound>>>in-mixed>>>traffic>>>downlink", "value": "200"},
+                {"name": "inbound>>>in-mixed>>>traffic>>>uplink", "value": 271386},
+                {"name": "inbound>>>in-mixed>>>traffic>>>downlink", "value": 678008},
             ]
         }
 
@@ -58,7 +59,52 @@ class TestQueryInboundTraffic:
             return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
 
         monkeypatch.setattr("kraymini.stats.subprocess.run", fake_run)
+        assert _call() == (271386, 678008)
+
+    def test_success_with_string_value(self, monkeypatch, fake_bin):
+        """兼容早期 xray 版本：计数器值序列化为字符串。"""
+        payload = {
+            "stat": [
+                {"name": "inbound>>>in-mixed>>>traffic>>>uplink", "value": "100"},
+                {"name": "inbound>>>in-mixed>>>traffic>>>downlink", "value": "200"},
+            ]
+        }
+
+        def fake_run(cmd, **kwargs):
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
+
+        monkeypatch.setattr("kraymini.stats.subprocess.run", fake_run)
         assert _call() == (100, 200)
+
+    def test_mixed_value_types(self, monkeypatch, fake_bin):
+        payload = {
+            "stat": [
+                {"name": "inbound>>>in-mixed>>>traffic>>>uplink", "value": 42},
+                {"name": "inbound>>>in-mixed>>>traffic>>>downlink", "value": "84"},
+            ]
+        }
+
+        def fake_run(cmd, **kwargs):
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
+
+        monkeypatch.setattr("kraymini.stats.subprocess.run", fake_run)
+        assert _call() == (42, 84)
+
+    def test_value_bool_is_rejected(self, monkeypatch, fake_bin):
+        """bool 是 int 的子类，需要显式排除以免被当成 0/1。"""
+        payload = {
+            "stat": [
+                {"name": "inbound>>>in-mixed>>>traffic>>>uplink", "value": True},
+                {"name": "inbound>>>in-mixed>>>traffic>>>downlink", "value": 1},
+            ]
+        }
+
+        def fake_run(cmd, **kwargs):
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
+
+        monkeypatch.setattr("kraymini.stats.subprocess.run", fake_run)
+        # uplink 解析失败视为计数器不完整 -> 返回 None
+        assert _call() is None
 
     def test_empty_stat_is_zero(self, monkeypatch, fake_bin):
         def fake_run(cmd, **kwargs):
