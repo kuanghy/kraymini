@@ -429,13 +429,18 @@ class TestGenerateDns:
 class TestGenerateApi:
     def test_services(self):
         api = generate_api()
-        assert api["tag"] == "api" and "ObservatoryService" in api["services"]
+        assert api["tag"] == "api"
+        assert "ObservatoryService" in api["services"]
+        assert "StatsService" in api["services"]
 
 
 class TestStatsPolicy:
     def test_stats_and_policy(self):
         stats, policy = generate_stats_policy()
-        assert stats == {} and policy["system"]["statsOutboundUplink"] is True
+        assert stats == {}
+        sys = policy["system"]
+        assert sys["statsInboundUplink"] is True and sys["statsInboundDownlink"] is True
+        assert "statsOutboundUplink" not in sys and "statsOutboundDownlink" not in sys
 
 
 class TestGenerateXrayConfig:

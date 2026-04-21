@@ -14,6 +14,14 @@ class XrayError(Exception):
     pass
 
 
+def resolve_xray_bin(xray_bin: str) -> str | None:
+    """定位 xray 二进制绝对路径；找不到返回 None，不抛异常。"""
+    path = Path(xray_bin)
+    if path.is_absolute():
+        return str(path) if path.exists() else None
+    return shutil.which(xray_bin)
+
+
 class XrayProcess:
     def __init__(self, xray_bin: str = "xray"):
         self.xray_bin = xray_bin
@@ -21,13 +29,10 @@ class XrayProcess:
         self._log_fh = None
 
     def _resolve_bin(self) -> str:
-        path = Path(self.xray_bin)
-        if path.is_absolute():
-            if not path.exists():
-                raise XrayError(f"xray 二进制不存在: {self.xray_bin}")
-            return str(path)
-        resolved = shutil.which(self.xray_bin)
+        resolved = resolve_xray_bin(self.xray_bin)
         if resolved is None:
+            if Path(self.xray_bin).is_absolute():
+                raise XrayError(f"xray 二进制不存在: {self.xray_bin}")
             raise XrayError(f"xray 二进制不存在: 在 PATH 中找不到 {self.xray_bin!r}")
         return resolved
 

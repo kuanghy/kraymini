@@ -8,8 +8,10 @@ import time
 from pathlib import Path
 
 from .config import KrayminiConfig
+from .constants import STATS_INBOUND_TAG, STATS_LOG_INTERVAL, STATS_QUERY_TIMEOUT
 from .generator import generate_xray_config, write_xray_config
 from .log import logger
+from .stats import format_traffic_log, query_inbound_traffic
 from .models import Node
 from .process import XrayProcess
 from .subscription import SubscriptionManager
@@ -49,6 +51,7 @@ class Daemon:
         self.current_nodes: list[Node] | None = None
         self._force_refresh = False
         self._running = True
+        self._last_stats_log: float = 0.0
         self._pipe_r, self._pipe_w = os.pipe()
         os.set_blocking(self._pipe_r, False)
         os.set_blocking(self._pipe_w, False)
@@ -101,6 +104,35 @@ class Daemon:
             logger.critical("xray 配置校验失败，无法启动")
             sys.exit(2)
         self.xray.start(config_path, log_file=self.config.log.file)
+        # 以 xray 启动时刻为流量日志基准，满 STATS_LOG_INTERVAL 后开始周期性输出
+        self._last_stats_log = time.time()
+
+    def _stats_endpoint(self) -> str:
+        # 主进程与子进程在同一机器，直接使用回环地址通信
+        listen = self.config.inbound.listen
+        if ":" in listen:
+            return f"[::1]:{self.config.inbound.api_port}"
+        return f"127.0.0.1:{self.config.inbound.api_port}"
+
+    def _maybe_log_stats(self, now: float) -> None:
+        if not self.xray.is_running():
+            return
+        if now - self._last_stats_log < STATS_LOG_INTERVAL:
+            return
+        self._last_stats_log = now
+        endpoint = self._stats_endpoint()
+        logger.debug("流量统计查询: endpoint=%s", endpoint)
+        result = query_inbound_traffic(
+            self.config.general.xray_bin,
+            endpoint,
+            STATS_INBOUND_TAG,
+            timeout=STATS_QUERY_TIMEOUT,
+        )
+        if result is None:
+            logger.warning("流量统计查询失败 (endpoint=%s)", endpoint)
+            return
+        uplink, downlink = result
+        logger.info("%s", format_traffic_log(uplink, downlink))
 
     def _do_refresh(self) -> None:
         if not self._check_xray_before_subscription(exit_on_fail=False):
@@ -126,6 +158,8 @@ class Daemon:
             return
         self.xray.reload(config_path, log_file=self.config.log.file)
         self.crash_monitor.reset()
+        # 新进程计数器从 0 开始，重新锚定基准时间，避免立即打印一条小值
+        self._last_stats_log = time.time()
         logger.info("xray 配置已重载")
 
     def run(self) -> None:
@@ -136,6 +170,7 @@ class Daemon:
             self._wait(POLL_INTERVAL)
             if not self._running:
                 break
+            self._maybe_log_stats(time.time())
             if not self.crash_monitor.is_suspended and not self.xray.is_running():
                 self.crash_monitor.record_crash()
                 if self.crash_monitor.is_suspended:
@@ -152,6 +187,7 @@ class Daemon:
                         self.config.general.output_config,
                         log_file=self.config.log.file,
                     )
+                    self._last_stats_log = time.time()
             need_refresh = self._force_refresh or (
                 time.time() - last_refresh >= self.config.general.refresh_interval
             )

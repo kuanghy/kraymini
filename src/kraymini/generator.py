@@ -11,7 +11,7 @@ from .config import (
     DnsConfig,
     ObservatoryConfig,
 )
-from .constants import LANDING_CHAIN_PREFIX, USER_AGENT
+from .constants import LANDING_CHAIN_PREFIX, STATS_INBOUND_TAG, USER_AGENT
 from .models import Node
 
 
@@ -34,7 +34,7 @@ def generate_inbounds(cfg: InboundConfig) -> list[dict]:
         sniffing_cfg = {"enabled": True, "destOverride": ["http", "tls"]}
 
     mixed_ib: dict = {
-        "tag": "in-mixed",
+        "tag": STATS_INBOUND_TAG,
         "protocol": "mixed",
         "listen": cfg.listen,
         "port": cfg.mixed_port,
@@ -367,13 +367,24 @@ def generate_dns(cfg: DnsConfig | None) -> dict | None:
 def generate_api() -> dict:
     return {
         "tag": "api",
-        "services": ["HandlerService", "LoggerService", "RoutingService", "ObservatoryService"],
+        "services": [
+            "HandlerService",
+            "LoggerService",
+            "RoutingService",
+            "ObservatoryService",
+            "StatsService",
+        ],
     }
 
 
 def generate_stats_policy() -> tuple[dict, dict]:
     stats: dict = {}
-    policy = {"system": {"statsOutboundUplink": True, "statsOutboundDownlink": True}}
+    policy = {
+        "system": {
+            "statsInboundUplink": True,
+            "statsInboundDownlink": True,
+        }
+    }
     return stats, policy
 
 
