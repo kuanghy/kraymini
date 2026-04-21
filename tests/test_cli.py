@@ -38,6 +38,17 @@ class TestBuildParser:
         assert args.command == "nodes"
         assert args.refresh is True
         assert args.json is True
+        assert args.raw is False
+
+    def test_nodes_raw(self):
+        args = build_parser().parse_args(["nodes", "--raw"])
+        assert args.command == "nodes"
+        assert args.raw is True
+        assert args.refresh is False
+
+    def test_nodes_refresh_and_raw_mutually_exclusive(self):
+        with pytest.raises(SystemExit):
+            build_parser().parse_args(["nodes", "--refresh", "--raw"])
 
 
 class TestCheckCommand:
@@ -271,3 +282,63 @@ class TestNodesCommand:
         assert '"remark": "node-1"' in out
         mock_mgr_cls.assert_called_once_with(cfg, str(config_path), runtime_dir=str(tmp_path))
         mock_mgr.refresh.assert_called_once_with()
+
+    @patch("kraymini.cli.fetch_raw_nodes")
+    @patch("kraymini.cli.SubscriptionManager")
+    @patch("kraymini.cli.setup_logging")
+    @patch("kraymini.cli.load_config")
+    @patch("kraymini.cli.find_config")
+    def test_raw_mode_uses_fetch_raw_nodes(
+        self,
+        mock_find_config,
+        mock_load_config,
+        _mock_setup_logging,
+        mock_mgr_cls,
+        mock_fetch_raw,
+        tmp_path,
+        capsys,
+    ):
+        cfg = KrayminiConfig(
+            subscriptions=[SubscriptionConfig(url="https://example.com/sub")],
+            general=GeneralConfig(output_config=str(tmp_path / "xray.json")),
+        )
+        config_path = tmp_path / "config.toml"
+        config_path.write_text('[[subscriptions]]\nurl = "https://example.com/sub"\n')
+        mock_find_config.return_value = config_path
+        mock_load_config.return_value = cfg
+        mock_fetch_raw.return_value = [self._node(remark="", source="raw-sub")]
+
+        assert cmd_nodes(str(config_path), refresh=False, as_json=False, raw=True) == 0
+
+        out = capsys.readouterr().out
+        assert "raw-sub" in out
+        assert "共 1 个节点" in out
+        # raw mode should not touch the SubscriptionManager (no dedup/filter/cache)
+        mock_mgr_cls.assert_not_called()
+        mock_fetch_raw.assert_called_once_with(cfg)
+
+    @patch("kraymini.cli.fetch_raw_nodes")
+    @patch("kraymini.cli.setup_logging")
+    @patch("kraymini.cli.load_config")
+    @patch("kraymini.cli.find_config")
+    def test_raw_mode_empty_returns_2(
+        self,
+        mock_find_config,
+        mock_load_config,
+        _mock_setup_logging,
+        mock_fetch_raw,
+        tmp_path,
+        capsys,
+    ):
+        cfg = KrayminiConfig(
+            subscriptions=[SubscriptionConfig(url="https://example.com/sub")],
+            general=GeneralConfig(output_config=str(tmp_path / "xray.json")),
+        )
+        config_path = tmp_path / "config.toml"
+        config_path.write_text('[[subscriptions]]\nurl = "https://example.com/sub"\n')
+        mock_find_config.return_value = config_path
+        mock_load_config.return_value = cfg
+        mock_fetch_raw.return_value = []
+
+        assert cmd_nodes(str(config_path), refresh=False, as_json=False, raw=True) == 2
+        assert "订阅拉取失败或无可用节点" in capsys.readouterr().err

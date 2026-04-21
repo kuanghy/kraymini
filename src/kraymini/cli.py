@@ -10,7 +10,12 @@ from . import __version__
 from .config import find_config, load_config, ConfigError
 from .log import setup_logging, logger
 from .models import Node
-from .subscription import SubscriptionManager, get_cache_path, load_cache_payload
+from .subscription import (
+    SubscriptionManager,
+    fetch_raw_nodes,
+    get_cache_path,
+    load_cache_payload,
+)
 
 
 def _add_common_cli_args(ap: argparse.ArgumentParser, *, for_subparser: bool = False) -> None:
@@ -51,7 +56,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     nodes_p = subparsers.add_parser("nodes", help="查看当前节点列表")
     _add_common_cli_args(nodes_p, for_subparser=True)
-    nodes_p.add_argument("--refresh", action="store_true", help="在线刷新订阅后展示")
+    nodes_source = nodes_p.add_mutually_exclusive_group()
+    nodes_source.add_argument("--refresh", action="store_true", help="在线刷新订阅后展示")
+    nodes_source.add_argument(
+        "--raw",
+        action="store_true",
+        help="直接拉取订阅，输出所有原始节点（不去重、不过滤、不写缓存）",
+    )
     nodes_p.add_argument("--json", action="store_true", help="输出 JSON")
 
     ver_p = subparsers.add_parser("version", help="输出版本信息")
@@ -87,7 +98,7 @@ def _format_nodes_text(
     for idx, node in enumerate(nodes, start=1):
         rows.append([
             str(idx),
-            node.remark,
+            node.remark or "-",
             node.protocol,
             node.address,
             str(node.port),
@@ -118,7 +129,12 @@ def _format_nodes_text(
     return "\n".join(lines)
 
 
-def cmd_nodes(config_path: str | None, refresh: bool, as_json: bool) -> int:
+def cmd_nodes(
+    config_path: str | None,
+    refresh: bool,
+    as_json: bool,
+    raw: bool = False,
+) -> int:
     try:
         path = find_config(config_path)
         cfg = load_config(path)
@@ -130,14 +146,19 @@ def cmd_nodes(config_path: str | None, refresh: bool, as_json: bool) -> int:
     runtime_dir = str(Path(cfg.general.output_config).parent)
     Path(runtime_dir).expanduser().mkdir(parents=True, exist_ok=True)
 
-    if refresh:
+    saved_at: str | None = None
+    from_cache = False
+    if raw:
+        nodes = fetch_raw_nodes(cfg)
+        if not nodes:
+            print("订阅拉取失败或无可用节点", file=sys.stderr)
+            return 2
+    elif refresh:
         mgr = SubscriptionManager(cfg, str(path), runtime_dir=runtime_dir)
         nodes = mgr.refresh()
         if not nodes:
             print("订阅拉取失败且无可用缓存", file=sys.stderr)
             return 2
-        saved_at = None
-        from_cache = False
     else:
         cache_path = get_cache_path(str(path), runtime_dir)
         payload = load_cache_payload(cache_path)
@@ -254,7 +275,7 @@ def main() -> None:
     elif args.command == "run":
         sys.exit(cmd_run(config_path))
     elif args.command == "nodes":
-        sys.exit(cmd_nodes(config_path, args.refresh, args.json))
+        sys.exit(cmd_nodes(config_path, args.refresh, args.json, raw=args.raw))
     else:
         parser.print_help()
         sys.exit(1)

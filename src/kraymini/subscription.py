@@ -121,6 +121,41 @@ def filter_nodes(
     return result
 
 
+def fetch_raw_nodes(config: KrayminiConfig) -> list[Node]:
+    """并发拉取所有订阅源并解析为节点列表。
+
+    不做去重、过滤、重命名或缓存写入，便于排查订阅内容或过滤规则问题。
+    单个订阅源拉取失败只记录日志，不影响其他源。
+    """
+    all_uris: list[tuple[str, str]] = []
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {
+            pool.submit(fetch_subscription, sub.url): sub
+            for sub in config.subscriptions
+        }
+        for future in as_completed(futures):
+            sub = futures[future]
+            try:
+                uris = future.result()
+                for u in uris:
+                    all_uris.append((u, sub.name))
+            except FetchError as e:
+                logger.warning("订阅源拉取失败: %s", e)
+
+    nodes: list[Node] = []
+    for uri, source in all_uris:
+        try:
+            node = parse_uri(uri)
+            node = replace(node, source=source)
+            _log_node(node)
+            nodes.append(node)
+        except ParseError as e:
+            logger.warning("节点解析失败, 跳过: %s", e)
+
+    return nodes
+
+
 def get_cache_path(config_path: str, runtime_dir: str = "~/.kraymini") -> Path:
     config_abs = str(Path(config_path).expanduser().resolve())
     hash8 = hashlib.sha256(config_abs.encode()).hexdigest()[:8]

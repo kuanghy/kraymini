@@ -10,11 +10,12 @@ import pytest
 from kraymini.subscription import (
     fetch_subscription, FetchError,
     deduplicate_nodes, assign_names, filter_nodes,
+    fetch_raw_nodes,
     save_cache, load_cache, load_cache_payload, get_cache_path,
     SubscriptionManager,
 )
 from kraymini.models import Node
-from kraymini.config import KrayminiConfig, SubscriptionConfig
+from kraymini.config import GeneralConfig, KrayminiConfig, SubscriptionConfig
 
 
 SAMPLE_URIS = [
@@ -257,6 +258,61 @@ class TestNodeCache:
         p1 = get_cache_path("/etc/kraymini/config.toml", "~/.kraymini")
         p2 = get_cache_path("/home/user/.kraymini/config.toml", "~/.kraymini")
         assert p1 != p2 and p1.name.startswith("nodes-cache-")
+
+
+class TestFetchRawNodes:
+    def _make_config(self, subs=None, include=None, exclude=None):
+        if subs is None:
+            subs = [SubscriptionConfig(url="https://example.com/sub", name="test")]
+        general = GeneralConfig(
+            node_include=include or [],
+            node_exclude=exclude or [],
+        )
+        return KrayminiConfig(subscriptions=subs, general=general)
+
+    @patch("kraymini.subscription.fetch_subscription")
+    def test_returns_parsed_nodes_without_filter_or_dedup(self, mock_fetch):
+        """raw 模式应保留重复节点、被过滤词命中的节点和无 remark 的节点。"""
+        mock_fetch.return_value = [
+            "vless://uuid@host1:443?type=tcp&security=none#hk-01",
+            "vless://uuid@host1:443?type=tcp&security=none#hk-01",  # 重复
+            "vless://uuid@host2:443?type=tcp&security=none",  # 无 remark
+            "trojan://pw@host3:443?type=tcp&security=tls&sni=host3#剩余流量",  # 本应被排除
+        ]
+        cfg = self._make_config(include=["hk"], exclude=["剩余流量"])
+        nodes = fetch_raw_nodes(cfg)
+        assert len(nodes) == 4
+        assert [n.address for n in nodes] == ["host1", "host1", "host2", "host3"]
+        assert nodes[2].remark == ""  # 未经 assign_names，remark 保留原样
+
+    @patch("kraymini.subscription.fetch_subscription")
+    def test_partial_failure_keeps_successful_sources(self, mock_fetch):
+        mock_fetch.side_effect = [
+            FetchError("fail"),
+            ["vless://uuid@host:443?type=tcp&security=none#node-b"],
+        ]
+        cfg = self._make_config(subs=[
+            SubscriptionConfig(url="https://a.com/sub", name="a"),
+            SubscriptionConfig(url="https://b.com/sub", name="b"),
+        ])
+        nodes = fetch_raw_nodes(cfg)
+        assert len(nodes) == 1
+
+    @patch("kraymini.subscription.fetch_subscription")
+    def test_does_not_write_cache(self, mock_fetch, tmp_path):
+        mock_fetch.return_value = ["vless://uuid@host:443?type=tcp&security=none#n1"]
+        cfg = self._make_config()
+        runtime_dir = tmp_path
+        cache_path = get_cache_path(str(tmp_path / "config.toml"), str(runtime_dir))
+        assert not cache_path.exists()
+        fetch_raw_nodes(cfg)
+        assert not cache_path.exists()
+
+    @patch("kraymini.subscription.fetch_subscription")
+    def test_all_fail_returns_empty(self, mock_fetch):
+        mock_fetch.side_effect = FetchError("all fail")
+        cfg = self._make_config()
+        assert fetch_raw_nodes(cfg) == []
 
 
 class TestSubscriptionManager:
