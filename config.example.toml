@@ -15,6 +15,15 @@
 # 订阅刷新间隔（秒），默认 3 小时
 refresh_interval = 10800
 
+# 主进程周期性网络探测（秒）。默认 600（10 分钟）；设为 0 关闭
+# connectivity_check_interval = 600
+# 经本地 mixed HTTP 代理请求的探测 URL（需可访问以反映代理链路）
+# connectivity_probe_url = "https://www.google.com/generate_204"
+# 代理探测与本地 TCP 探测的超时（秒）
+# connectivity_probe_timeout = 5
+# 本地网络探测目标（host:port），默认国内公共 DNS 的 443；IPv6 写 [addr]:port
+# connectivity_local_targets = ["223.5.5.5:443", "119.29.29.29:443"]
+
 # 节点过滤：只保留备注名或节点地址中包含任一关键词的节点（不区分大小写）
 # node_include = ["香港", "日本", "美国"]
 

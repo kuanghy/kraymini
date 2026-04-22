@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from .config import KrayminiConfig
+from .connectivity import check_local_connectivity, check_proxy_connectivity
 from .constants import STATS_INBOUND_TAG, STATS_LOG_INTERVAL, STATS_QUERY_TIMEOUT
 from .generator import generate_xray_config, write_xray_config
 from .log import logger
@@ -52,6 +53,7 @@ class Daemon:
         self._force_refresh = False
         self._running = True
         self._last_stats_log: float = 0.0
+        self._last_connectivity_check: float = 0.0
         self._pipe_r, self._pipe_w = os.pipe()
         os.set_blocking(self._pipe_r, False)
         os.set_blocking(self._pipe_w, False)
@@ -132,6 +134,48 @@ class Daemon:
         uplink, downlink = result
         logger.info("%s", format_traffic_log(uplink, downlink))
 
+    def _maybe_check_connectivity(self, now: float) -> None:
+        """周期性探测经代理的外网连通性；失败时再探本地 TCP，本地通则尝试刷新订阅
+
+        xray 未运行时跳过：此时代理必然不通，交给崩溃检测路径处理更合适
+        """
+        interval = self.config.general.connectivity_check_interval
+        if interval <= 0:
+            return
+        if now - self._last_connectivity_check < interval:
+            return
+        if not self.xray.is_running():
+            return
+        self._last_connectivity_check = now
+
+        timeout = float(self.config.general.connectivity_probe_timeout)
+        probe_result = check_proxy_connectivity(
+            listen=self.config.inbound.listen,
+            mixed_port=self.config.inbound.mixed_port,
+            probe_url=self.config.general.connectivity_probe_url.strip(),
+            timeout=timeout,
+        )
+        if probe_result.ok and probe_result.latency_ms is not None:
+            logger.info("网络连通性正常，延迟 %d ms", probe_result.latency_ms)
+            return
+
+        err = probe_result.error or "未知错误"
+        local_ok = check_local_connectivity(
+            self.config.general.connectivity_local_targets,
+            timeout=timeout,
+        )
+        if local_ok:
+            logger.warning(
+                "代理连通性异常，本地网络正常，尝试刷新订阅: %s",
+                err,
+            )
+            self._do_refresh()
+        else:
+            logger.warning(
+                "本地网络不可用，跳过订阅刷新（代理探测失败: %s）",
+                err,
+            )
+
     def _do_refresh(self) -> None:
         if not self._check_xray_before_subscription(exit_on_fail=False):
             return
@@ -164,11 +208,14 @@ class Daemon:
         self._setup_signals()
         self.initial_start()
         last_refresh = time.time()
+        self._last_connectivity_check = time.time()
         while self._running:
             self._wait(POLL_INTERVAL)
             if not self._running:
                 break
-            self._maybe_log_stats(time.time())
+            now = time.time()
+            self._maybe_log_stats(now)
+            self._maybe_check_connectivity(now)
             if not self.crash_monitor.is_suspended and not self.xray.is_running():
                 self.crash_monitor.record_crash()
                 if self.crash_monitor.is_suspended:

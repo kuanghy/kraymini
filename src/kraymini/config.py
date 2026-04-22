@@ -17,6 +17,12 @@ class GeneralConfig:
     xray_bin: str = "xray"
     output_config: str = "~/.kraymini/xray.json"
     refresh_interval: int = 10800
+    connectivity_check_interval: int = 600
+    connectivity_probe_url: str = "https://www.google.com/generate_204"
+    connectivity_probe_timeout: int = 5
+    connectivity_local_targets: list[str] = field(
+        default_factory=lambda: ["223.5.5.5:443", "119.29.29.29:443"],
+    )
     node_include: list[str] = field(default_factory=list)
     node_exclude: list[str] = field(default_factory=list)
 
@@ -325,6 +331,36 @@ def _validate_config(cfg: KrayminiConfig) -> None:
 
     if cfg.general.refresh_interval <= 0:
         raise ConfigError("refresh_interval 必须为正整数")
+
+    if cfg.general.connectivity_check_interval < 0:
+        raise ConfigError("connectivity_check_interval 不能为负数")
+
+    if cfg.general.connectivity_probe_timeout <= 0:
+        raise ConfigError("connectivity_probe_timeout 必须为正整数")
+
+    probe_url = cfg.general.connectivity_probe_url.strip()
+    if not probe_url.startswith(("http://", "https://")):
+        raise ConfigError(
+            f"connectivity_probe_url 格式不正确，需以 http:// 或 https:// 开头: "
+            f"{cfg.general.connectivity_probe_url!r}"
+        )
+
+    if cfg.general.connectivity_check_interval > 0:
+        if not cfg.general.connectivity_local_targets:
+            raise ConfigError(
+                "connectivity_check_interval 大于 0 时，connectivity_local_targets "
+                "至少配置一个 host:port 目标"
+            )
+        from .connectivity import parse_tcp_target
+
+        for idx, raw in enumerate(cfg.general.connectivity_local_targets):
+            try:
+                parse_tcp_target(raw)
+            except ValueError as e:
+                raise ConfigError(
+                    f"connectivity_local_targets[{idx}] 格式无效，应为 host:port "
+                    f"或 [IPv6]:port: {raw!r} ({e})"
+                ) from e
 
     if cfg.log.level not in VALID_LOG_LEVELS:
         raise ConfigError(f"level 必须为 {VALID_LOG_LEVELS} 之一，实际: {cfg.log.level!r}")

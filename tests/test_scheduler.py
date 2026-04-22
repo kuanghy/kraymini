@@ -6,6 +6,7 @@ import pytest
 
 from kraymini.scheduler import CrashMonitor, Daemon
 from kraymini.config import KrayminiConfig, SubscriptionConfig, GeneralConfig
+from kraymini.connectivity import ProbeResult
 from kraymini.models import Node
 
 
@@ -136,3 +137,142 @@ class TestDaemon:
 
         mock_check_available.assert_called_once_with()
         mock_mgr.refresh.assert_not_called()
+
+
+class TestDaemonConnectivity:
+    def _make_config(self, tmp_path, xray_bin: str) -> KrayminiConfig:
+        return KrayminiConfig(
+            subscriptions=[SubscriptionConfig(url="https://example.com/sub")],
+            general=GeneralConfig(
+                xray_bin=xray_bin,
+                output_config=str(tmp_path / "xray.json"),
+                refresh_interval=3600,
+                connectivity_check_interval=600,
+            ),
+        )
+
+    @patch("kraymini.scheduler.check_proxy_connectivity")
+    def test_maybe_check_connectivity_skipped_when_interval_zero(
+        self,
+        mock_proxy,
+        tmp_path,
+        fake_xray,
+    ):
+        cfg = self._make_config(tmp_path, fake_xray)
+        cfg.general.connectivity_check_interval = 0
+        config_path = tmp_path / "config.toml"
+        config_path.write_text('[[subscriptions]]\nurl = "https://example.com/sub"\n')
+        daemon = Daemon(cfg, str(config_path))
+        daemon._last_connectivity_check = 0.0
+        daemon._maybe_check_connectivity(10_000.0)
+        mock_proxy.assert_not_called()
+
+    @patch("kraymini.process.XrayProcess.is_running", return_value=False)
+    @patch("kraymini.scheduler.check_proxy_connectivity")
+    def test_maybe_check_connectivity_skipped_when_xray_not_running(
+        self,
+        mock_proxy,
+        _mock_is_running,
+        tmp_path,
+        fake_xray,
+    ):
+        cfg = self._make_config(tmp_path, fake_xray)
+        config_path = tmp_path / "config.toml"
+        config_path.write_text('[[subscriptions]]\nurl = "https://example.com/sub"\n')
+        daemon = Daemon(cfg, str(config_path))
+        daemon._last_connectivity_check = 0.0
+        daemon._maybe_check_connectivity(10_000.0)
+        mock_proxy.assert_not_called()
+        # 被跳过时不应推进时间戳，下次 xray 恢复后仍会立刻触发
+        assert daemon._last_connectivity_check == 0.0
+
+    @patch("kraymini.scheduler.check_proxy_connectivity")
+    def test_maybe_check_connectivity_skipped_before_interval_elapsed(
+        self,
+        mock_proxy,
+        tmp_path,
+        fake_xray,
+    ):
+        cfg = self._make_config(tmp_path, fake_xray)
+        config_path = tmp_path / "config.toml"
+        config_path.write_text('[[subscriptions]]\nurl = "https://example.com/sub"\n')
+        daemon = Daemon(cfg, str(config_path))
+        daemon._last_connectivity_check = 9_500.0
+        daemon._maybe_check_connectivity(10_000.0)
+        mock_proxy.assert_not_called()
+
+    @patch("kraymini.process.XrayProcess.is_running", return_value=True)
+    @patch("kraymini.scheduler.logger.info")
+    @patch("kraymini.scheduler.check_local_connectivity")
+    @patch("kraymini.scheduler.check_proxy_connectivity")
+    def test_maybe_check_connectivity_logs_latency_on_success(
+        self,
+        mock_proxy,
+        mock_local,
+        mock_log_info,
+        _mock_is_running,
+        tmp_path,
+        fake_xray,
+    ):
+        mock_proxy.return_value = ProbeResult(ok=True, latency_ms=42, error=None)
+        cfg = self._make_config(tmp_path, fake_xray)
+        config_path = tmp_path / "config.toml"
+        config_path.write_text('[[subscriptions]]\nurl = "https://example.com/sub"\n')
+        daemon = Daemon(cfg, str(config_path))
+        daemon._last_connectivity_check = 0.0
+        daemon._maybe_check_connectivity(10_000.0)
+        mock_proxy.assert_called_once()
+        mock_local.assert_not_called()
+        mock_log_info.assert_called_once()
+        assert mock_log_info.call_args[0][0] == "网络连通性正常，延迟 %d ms"
+        assert mock_log_info.call_args[0][1] == 42
+
+    @patch("kraymini.process.XrayProcess.is_running", return_value=True)
+    @patch.object(Daemon, "_do_refresh")
+    @patch("kraymini.scheduler.logger.warning")
+    @patch("kraymini.scheduler.check_local_connectivity", return_value=True)
+    @patch("kraymini.scheduler.check_proxy_connectivity")
+    def test_maybe_check_connectivity_refreshes_when_proxy_down_local_up(
+        self,
+        mock_proxy,
+        mock_local,
+        mock_log_warning,
+        mock_do_refresh,
+        _mock_is_running,
+        tmp_path,
+        fake_xray,
+    ):
+        mock_proxy.return_value = ProbeResult(ok=False, error="proxy-down")
+        cfg = self._make_config(tmp_path, fake_xray)
+        config_path = tmp_path / "config.toml"
+        config_path.write_text('[[subscriptions]]\nurl = "https://example.com/sub"\n')
+        daemon = Daemon(cfg, str(config_path))
+        daemon._last_connectivity_check = 0.0
+        daemon._maybe_check_connectivity(10_000.0)
+        mock_do_refresh.assert_called_once()
+        mock_log_warning.assert_called_once()
+
+    @patch("kraymini.process.XrayProcess.is_running", return_value=True)
+    @patch.object(Daemon, "_do_refresh")
+    @patch("kraymini.scheduler.logger.warning")
+    @patch("kraymini.scheduler.check_local_connectivity", return_value=False)
+    @patch("kraymini.scheduler.check_proxy_connectivity")
+    def test_maybe_check_connectivity_no_refresh_when_local_down(
+        self,
+        mock_proxy,
+        mock_local,
+        mock_log_warning,
+        mock_do_refresh,
+        _mock_is_running,
+        tmp_path,
+        fake_xray,
+    ):
+        mock_proxy.return_value = ProbeResult(ok=False, error="proxy-down")
+        cfg = self._make_config(tmp_path, fake_xray)
+        config_path = tmp_path / "config.toml"
+        config_path.write_text('[[subscriptions]]\nurl = "https://example.com/sub"\n')
+        daemon = Daemon(cfg, str(config_path))
+        daemon._last_connectivity_check = 0.0
+        daemon._maybe_check_connectivity(10_000.0)
+        mock_do_refresh.assert_not_called()
+        mock_log_warning.assert_called_once()

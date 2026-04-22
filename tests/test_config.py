@@ -24,6 +24,10 @@ class TestConfigDataStructures:
         assert cfg.xray_bin == "xray"
         assert cfg.output_config == "~/.kraymini/xray.json"
         assert cfg.refresh_interval == 10800
+        assert cfg.connectivity_check_interval == 600
+        assert "google.com" in cfg.connectivity_probe_url
+        assert cfg.connectivity_probe_timeout == 5
+        assert cfg.connectivity_local_targets == ["223.5.5.5:443", "119.29.29.29:443"]
         assert cfg.node_include == []
         assert cfg.node_exclude == []
 
@@ -103,6 +107,24 @@ name = "provider-a"
         assert cfg.general.refresh_interval == 3600
         assert cfg.general.node_include == ["香港", "美国"]
         assert cfg.subscriptions[0].name == "provider-a"
+
+    def test_load_general_connectivity(self, write_config):
+        toml = """
+[general]
+connectivity_check_interval = 120
+connectivity_probe_url = "https://example.com/generate_204"
+connectivity_probe_timeout = 3
+connectivity_local_targets = ["1.1.1.1:443", "[::1]:443"]
+
+[[subscriptions]]
+url = "https://example.com/sub"
+"""
+        path = write_config(toml)
+        cfg = load_config(path)
+        assert cfg.general.connectivity_check_interval == 120
+        assert cfg.general.connectivity_probe_url == "https://example.com/generate_204"
+        assert cfg.general.connectivity_probe_timeout == 3
+        assert cfg.general.connectivity_local_targets == ["1.1.1.1:443", "[::1]:443"]
 
     def test_load_inbound(self, write_config):
         toml = """
@@ -434,6 +456,64 @@ outbound_tag = "LP-Via: my-node"
         path = write_config(toml)
         with pytest.raises(ConfigError, match="refresh_interval.*正整数"):
             load_config(path)
+
+    def test_invalid_connectivity_check_interval(self, write_config):
+        toml = (
+            '[general]\nconnectivity_check_interval = -1\n\n'
+            '[[subscriptions]]\nurl = "https://example.com/sub"\n'
+        )
+        path = write_config(toml)
+        with pytest.raises(ConfigError, match="connectivity_check_interval"):
+            load_config(path)
+
+    def test_invalid_connectivity_probe_timeout(self, write_config):
+        toml = (
+            '[general]\nconnectivity_probe_timeout = 0\n\n'
+            '[[subscriptions]]\nurl = "https://example.com/sub"\n'
+        )
+        path = write_config(toml)
+        with pytest.raises(ConfigError, match="connectivity_probe_timeout"):
+            load_config(path)
+
+    def test_invalid_connectivity_probe_url(self, write_config):
+        toml = (
+            '[general]\nconnectivity_probe_url = "ftp://example.com/x"\n\n'
+            '[[subscriptions]]\nurl = "https://example.com/sub"\n'
+        )
+        path = write_config(toml)
+        with pytest.raises(ConfigError, match="connectivity_probe_url"):
+            load_config(path)
+
+    def test_connectivity_local_targets_required_when_enabled(self, write_config):
+        toml = (
+            "[general]\nconnectivity_check_interval = 60\n"
+            "connectivity_local_targets = []\n\n"
+            '[[subscriptions]]\nurl = "https://example.com/sub"\n'
+        )
+        path = write_config(toml)
+        with pytest.raises(ConfigError, match="connectivity_local_targets"):
+            load_config(path)
+
+    def test_connectivity_local_targets_invalid_format(self, write_config):
+        toml = (
+            "[general]\nconnectivity_check_interval = 60\n"
+            'connectivity_local_targets = ["not-a-port"]\n\n'
+            '[[subscriptions]]\nurl = "https://example.com/sub"\n'
+        )
+        path = write_config(toml)
+        with pytest.raises(ConfigError, match="格式无效"):
+            load_config(path)
+
+    def test_connectivity_disabled_allows_empty_local_targets(self, write_config):
+        toml = (
+            "[general]\nconnectivity_check_interval = 0\n"
+            "connectivity_local_targets = []\n\n"
+            '[[subscriptions]]\nurl = "https://example.com/sub"\n'
+        )
+        path = write_config(toml)
+        cfg = load_config(path)
+        assert cfg.general.connectivity_check_interval == 0
+        assert cfg.general.connectivity_local_targets == []
 
     def test_invalid_log_level(self, write_config):
         toml = '[[subscriptions]]\nurl = "https://example.com/sub"\n\n[log]\nlevel = "verbose"\n'
