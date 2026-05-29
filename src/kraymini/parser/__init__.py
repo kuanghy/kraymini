@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from ..models import Node
 from . import vmess, vless, trojan, shadowsocks, hysteria, tuic
+from ._utils import normalize_server_address
 
 PARSERS = {
     "vmess://": vmess,
@@ -22,7 +25,12 @@ def parse_uri(uri: str) -> Node:
     for prefix, module in PARSERS.items():
         if uri.startswith(prefix):
             try:
-                return module.parse(uri)
+                node = module.parse(uri)
+                try:
+                    address = normalize_server_address(node.address)
+                except ValueError as e:
+                    raise ParseError(f"节点地址不合法: {e}") from e
+                return replace(node, address=address)
             except ParseError:
                 raise
             except Exception as e:

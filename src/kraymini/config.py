@@ -270,11 +270,17 @@ def _load_security(data: dict) -> SecurityConfig:
 
 
 def _load_landing_proxy(data: dict) -> LandingProxyConfig:
+    from .parser._utils import normalize_server_address
+
     _reject_unknown_keys(LandingProxyConfig, data, "landing_proxy")
     transport = _load_transport(data.get("transport", {}))
     security = _load_security(data.get("security", {}))
     flat = {k: v for k, v in data.items() if k not in ("transport", "security")}
     lp = _from_toml(LandingProxyConfig, flat)
+    try:
+        lp.address = normalize_server_address(lp.address)
+    except ValueError as e:
+        raise ConfigError(f"landing_proxy.address 不合法: {e}") from e
     lp.transport = transport
     lp.security = security
     return lp
@@ -371,6 +377,8 @@ def _validate_config(cfg: KrayminiConfig) -> None:
 
     lp = cfg.landing_proxy
     if lp is not None:
+        if not lp.address.strip():
+            raise ConfigError("landing_proxy.address 不能为空")
         if lp.protocol in ("vmess", "vless") and not lp.uuid:
             raise ConfigError(f"{lp.protocol} 协议需要 uuid")
         if lp.protocol == "trojan" and not lp.password:

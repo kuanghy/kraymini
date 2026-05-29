@@ -358,6 +358,36 @@ class TestValidateConfig:
         cfg = load_config(path)
         assert cfg.inbound.listen == "::1"
 
+    def test_landing_proxy_strips_bracketed_ipv6(self, write_config):
+        toml = (
+            '[[subscriptions]]\nurl = "https://example.com/sub"\n\n'
+            '[landing_proxy]\nprotocol = "trojan"\n'
+            'address = "[2001:db8::1]"\nport = 443\npassword = "pw"\n'
+        )
+        path = write_config(toml)
+        cfg = load_config(path)
+        assert cfg.landing_proxy.address == "2001:db8::1"
+
+    def test_landing_proxy_empty_bracketed_address(self, write_config):
+        toml = (
+            '[[subscriptions]]\nurl = "https://example.com/sub"\n\n'
+            '[landing_proxy]\nprotocol = "trojan"\n'
+            'address = "[]"\nport = 443\npassword = "pw"\n'
+        )
+        path = write_config(toml)
+        with pytest.raises(ConfigError, match="landing_proxy.address"):
+            load_config(path)
+
+    def test_landing_proxy_bracketed_ipv4_rejected(self, write_config):
+        toml = (
+            '[[subscriptions]]\nurl = "https://example.com/sub"\n\n'
+            '[landing_proxy]\nprotocol = "trojan"\n'
+            'address = "[127.0.0.1]"\nport = 443\npassword = "pw"\n'
+        )
+        path = write_config(toml)
+        with pytest.raises(ConfigError, match="landing_proxy.address"):
+            load_config(path)
+
     def test_landing_proxy_vmess_needs_uuid(self, write_config):
         toml = '[[subscriptions]]\nurl = "https://example.com/sub"\n\n[landing_proxy]\nprotocol = "vmess"\naddress = "host"\nport = 443\n'
         path = write_config(toml)

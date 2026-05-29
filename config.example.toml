@@ -60,7 +60,7 @@ sniffing = true
 # --- Trojan + TLS 示例 ---
 # [landing_proxy]
 # protocol = "trojan"
-# address = "landing.example.com"
+# address = "landing.example.com"   # IPv6 写裸地址，如 2001:db8::1（不要写方括号）
 # port = 443
 # password = "your-trojan-password"
 #
