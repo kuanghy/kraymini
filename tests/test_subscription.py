@@ -27,8 +27,10 @@ SAMPLE_URIS = [
 class MockHandler(BaseHTTPRequestHandler):
     response_body = b""
     status_code = 200
+    last_user_agent = ""
 
     def do_GET(self):
+        self.__class__.last_user_agent = self.headers.get("User-Agent", "")
         self.send_response(self.status_code)
         self.end_headers()
         self.wfile.write(self.response_body)
@@ -57,10 +59,12 @@ class TestFetchSubscription:
         raw = "\n".join(SAMPLE_URIS)
         MockHandler.response_body = base64.b64encode(raw.encode())
         MockHandler.status_code = 200
+        MockHandler.last_user_agent = ""
         host, port = mock_server.server_address
         uris = fetch_subscription(f"http://{host}:{port}/sub")
         assert len(uris) == 2
         assert uris[0] == SAMPLE_URIS[0]
+        assert MockHandler.last_user_agent == "v2rayN"
 
     def test_fetch_with_blank_lines(self, mock_server):
         raw = f"\n{SAMPLE_URIS[0]}\n\n{SAMPLE_URIS[1]}\n\n"
@@ -69,6 +73,18 @@ class TestFetchSubscription:
         host, port = mock_server.server_address
         uris = fetch_subscription(f"http://{host}:{port}/sub")
         assert len(uris) == 2
+
+    def test_fetch_with_custom_user_agent(self, mock_server):
+        raw = "\n".join(SAMPLE_URIS)
+        MockHandler.response_body = base64.b64encode(raw.encode())
+        MockHandler.status_code = 200
+        MockHandler.last_user_agent = ""
+        host, port = mock_server.server_address
+        fetch_subscription(
+            f"http://{host}:{port}/sub",
+            user_agent="clash-verge/1.7.7",
+        )
+        assert MockHandler.last_user_agent == "clash-verge/1.7.7"
 
     def test_fetch_http_error(self, mock_server):
         MockHandler.status_code = 500
@@ -80,6 +96,34 @@ class TestFetchSubscription:
     def test_fetch_timeout(self):
         with pytest.raises(FetchError):
             fetch_subscription("http://192.0.2.1:1/sub", timeout=1, retries=1)
+
+    def test_fetch_invalid_user_agent_raises_fetch_error(self):
+        with pytest.raises(FetchError, match="订阅请求头无效"):
+            fetch_subscription(
+                "https://example.com/sub",
+                retries=1,
+                user_agent="bad\nagent",
+            )
+
+    def test_fetch_non_string_user_agent_raises_fetch_error(self):
+        with pytest.raises(FetchError, match="User-Agent 必须是字符串"):
+            fetch_subscription(
+                "https://example.com/sub",
+                retries=1,
+                user_agent=123,  # type: ignore[arg-type]
+            )
+
+    def test_fetch_blank_user_agent_falls_back_to_default(self, mock_server):
+        raw = "\n".join(SAMPLE_URIS)
+        MockHandler.response_body = base64.b64encode(raw.encode())
+        MockHandler.status_code = 200
+        MockHandler.last_user_agent = ""
+        host, port = mock_server.server_address
+        fetch_subscription(
+            f"http://{host}:{port}/sub",
+            user_agent="   ",
+        )
+        assert MockHandler.last_user_agent == "v2rayN"
 
 
 class TestDeduplicateNodes:
@@ -314,6 +358,57 @@ class TestFetchRawNodes:
         cfg = self._make_config()
         assert fetch_raw_nodes(cfg) == []
 
+    def test_invalid_user_agent_only_affects_single_source(self, mock_server):
+        raw = "\n".join(SAMPLE_URIS)
+        MockHandler.response_body = base64.b64encode(raw.encode())
+        MockHandler.status_code = 200
+        host, port = mock_server.server_address
+        cfg = self._make_config(subs=[
+            SubscriptionConfig(
+                url=f"http://{host}:{port}/sub",
+                name="bad",
+                user_agent="bad\nagent",
+            ),
+            SubscriptionConfig(url=f"http://{host}:{port}/sub", name="good"),
+        ])
+        nodes = fetch_raw_nodes(cfg)
+        assert len(nodes) == 2
+        assert all(node.source == "good" for node in nodes)
+
+    def test_non_string_user_agent_only_affects_single_source(self, mock_server):
+        raw = "\n".join(SAMPLE_URIS)
+        MockHandler.response_body = base64.b64encode(raw.encode())
+        MockHandler.status_code = 200
+        host, port = mock_server.server_address
+        cfg = self._make_config(subs=[
+            SubscriptionConfig(
+                url=f"http://{host}:{port}/sub",
+                name="bad",
+                user_agent=123,  # type: ignore[arg-type]
+            ),
+            SubscriptionConfig(url=f"http://{host}:{port}/sub", name="good"),
+        ])
+        nodes = fetch_raw_nodes(cfg)
+        assert len(nodes) == 2
+        assert all(node.source == "good" for node in nodes)
+
+    def test_falsy_non_string_user_agent_only_affects_single_source(self, mock_server):
+        raw = "\n".join(SAMPLE_URIS)
+        MockHandler.response_body = base64.b64encode(raw.encode())
+        MockHandler.status_code = 200
+        host, port = mock_server.server_address
+        cfg = self._make_config(subs=[
+            SubscriptionConfig(
+                url=f"http://{host}:{port}/sub",
+                name="bad",
+                user_agent=False,  # type: ignore[arg-type]
+            ),
+            SubscriptionConfig(url=f"http://{host}:{port}/sub", name="good"),
+        ])
+        nodes = fetch_raw_nodes(cfg)
+        assert len(nodes) == 2
+        assert all(node.source == "good" for node in nodes)
+
 
 class TestSubscriptionManager:
     def _make_config(self, tmp_path, subs=None):
@@ -362,6 +457,50 @@ class TestSubscriptionManager:
         mgr = SubscriptionManager(cfg, str(cp), runtime_dir=str(tmp_path))
         mock_fetch.side_effect = FetchError("all fail")
         assert mgr.refresh() is None
+
+    def test_refresh_non_string_user_agent_only_affects_single_source(
+        self,
+        mock_server,
+        tmp_path,
+    ):
+        raw = "\n".join(SAMPLE_URIS)
+        MockHandler.response_body = base64.b64encode(raw.encode())
+        MockHandler.status_code = 200
+        host, port = mock_server.server_address
+        cfg, cp = self._make_config(tmp_path, subs=[
+            SubscriptionConfig(
+                url=f"http://{host}:{port}/sub",
+                name="bad",
+                user_agent=123,  # type: ignore[arg-type]
+            ),
+            SubscriptionConfig(url=f"http://{host}:{port}/sub", name="good"),
+        ])
+        mgr = SubscriptionManager(cfg, str(cp), runtime_dir=str(tmp_path))
+        nodes = mgr.refresh()
+        assert nodes is not None and len(nodes) == 2
+        assert all(node.source == "good" for node in nodes)
+
+    def test_refresh_falsy_non_string_user_agent_only_affects_single_source(
+        self,
+        mock_server,
+        tmp_path,
+    ):
+        raw = "\n".join(SAMPLE_URIS)
+        MockHandler.response_body = base64.b64encode(raw.encode())
+        MockHandler.status_code = 200
+        host, port = mock_server.server_address
+        cfg, cp = self._make_config(tmp_path, subs=[
+            SubscriptionConfig(
+                url=f"http://{host}:{port}/sub",
+                name="bad",
+                user_agent=False,  # type: ignore[arg-type]
+            ),
+            SubscriptionConfig(url=f"http://{host}:{port}/sub", name="good"),
+        ])
+        mgr = SubscriptionManager(cfg, str(cp), runtime_dir=str(tmp_path))
+        nodes = mgr.refresh()
+        assert nodes is not None and len(nodes) == 2
+        assert all(node.source == "good" for node in nodes)
 
     @patch("kraymini.subscription.fetch_subscription")
     def test_nodes_changed(self, mock_fetch, tmp_path):

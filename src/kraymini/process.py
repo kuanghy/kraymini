@@ -86,7 +86,15 @@ class XrayProcess:
                 logger.info("xray 配置校验通过: %s", config_path)
                 return True
             else:
-                logger.error("xray 配置校验失败: %s\n%s", config_path, result.stderr)
+                details: list[str] = []
+                stdout_text = (result.stdout or "").strip()
+                stderr_text = (result.stderr or "").strip()
+                if stderr_text:
+                    details.append(f"stderr:\n{stderr_text}")
+                if stdout_text:
+                    details.append(f"stdout:\n{stdout_text}")
+                reason = "\n\n".join(details) if details else "xray 未返回更多错误信息"
+                logger.error("xray 配置校验失败: %s\n%s", config_path, reason)
                 return False
         except subprocess.TimeoutExpired:
             logger.error("xray 配置校验超时: %s", config_path)

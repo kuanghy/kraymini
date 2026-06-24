@@ -447,7 +447,9 @@ def write_xray_config(xray_config: dict, output_path: str) -> str:
 
 
 def xray_config_candidate_path(output_path: str) -> Path:
-    return Path(output_path).with_suffix(".tmp")
+    path = Path(output_path)
+    base_name = path.stem if path.suffix.lower() == ".json" else path.name
+    return path.with_name(f"{base_name}.tmp.json")
 
 
 def write_xray_config_candidate(xray_config: dict, output_path: str) -> str:

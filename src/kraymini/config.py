@@ -35,6 +35,7 @@ class GeneralConfig:
 class SubscriptionConfig:
     url: str
     name: str = ""
+    user_agent: str = ""
 
 
 @dataclass
@@ -353,6 +354,11 @@ def _validate_config(cfg: KrayminiConfig) -> None:
             raise ConfigError("订阅源 url 不能为空")
         if not sub.url.strip().startswith(("http://", "https://")):
             raise ConfigError(f"订阅源 url 格式不正确: {sub.url!r}")
+        if not isinstance(sub.user_agent, str):
+            raise ConfigError("订阅源 user_agent 必须是字符串")
+        if "\r" in sub.user_agent or "\n" in sub.user_agent:
+            raise ConfigError("订阅源 user_agent 不能包含换行符")
+        sub.user_agent = sub.user_agent.strip()
 
     ports = [cfg.inbound.mixed_port, cfg.inbound.api_port]
     for p in ports:

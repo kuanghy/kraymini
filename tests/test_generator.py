@@ -504,6 +504,7 @@ class TestGenerateXrayConfig:
         out = tmp_path / "out" / "xray.json"
         candidate = Path(write_xray_config_candidate(xray, str(out)))
         assert candidate == xray_config_candidate_path(str(out))
+        assert candidate.name == "xray.tmp.json"
         assert candidate.exists()
         assert not out.exists()
         written = promote_xray_config_candidate(str(candidate), str(out))
@@ -511,3 +512,15 @@ class TestGenerateXrayConfig:
         assert out.exists()
         assert not candidate.exists()
         assert json.loads(out.read_text()) == xray
+
+    def test_candidate_path_keeps_json_suffix_for_xray(self, tmp_path):
+        out = tmp_path / "runtime" / "xray.json"
+        candidate = xray_config_candidate_path(str(out))
+        assert candidate.suffix == ".json"
+        assert candidate.name == "xray.tmp.json"
+
+    def test_candidate_path_for_non_json_output_still_uses_json_suffix(self, tmp_path):
+        out = tmp_path / "runtime" / "xray.conf"
+        candidate = xray_config_candidate_path(str(out))
+        assert candidate.suffix == ".json"
+        assert candidate.name == "xray.conf.tmp.json"

@@ -12,7 +12,7 @@ from urllib.error import URLError, HTTPError
 from urllib.request import Request, urlopen
 
 from .config import KrayminiConfig
-from .constants import USER_AGENT
+from .constants import SUBSCRIPTION_USER_AGENT
 from .log import logger
 from .models import Node
 from .parser import parse_uri, ParseError
@@ -27,12 +27,22 @@ class FetchError(Exception):
     pass
 
 
+def _normalize_user_agent(user_agent: object) -> str:
+    if not isinstance(user_agent, str):
+        raise FetchError(f"订阅请求头无效: User-Agent 必须是字符串，实际: {type(user_agent).__name__}")
+    if "\r" in user_agent or "\n" in user_agent:
+        raise FetchError("订阅请求头无效: User-Agent 不能包含换行符")
+    return user_agent.strip() or SUBSCRIPTION_USER_AGENT
+
+
 def fetch_subscription(
     url: str,
     timeout: int = 10,
     retries: int = 3,
+    user_agent: str = SUBSCRIPTION_USER_AGENT,
 ) -> list[str]:
     last_error: Exception | None = None
+    user_agent = _normalize_user_agent(user_agent)
 
     for attempt in range(retries):
         if attempt > 0:
@@ -41,9 +51,11 @@ def fetch_subscription(
             time.sleep(wait)
 
         try:
-            req = Request(url, headers={"User-Agent": USER_AGENT})
+            req = Request(url, headers={"User-Agent": user_agent})
             with urlopen(req, timeout=timeout) as resp:
                 body = resp.read()
+        except ValueError as e:
+            raise FetchError(f"订阅请求头无效: {url} - {e}") from e
         except (URLError, HTTPError, OSError) as e:
             last_error = e
             logger.warning("订阅拉取失败 (%d/%d): %s - %s", attempt + 1, retries, url, e)
@@ -131,7 +143,11 @@ def fetch_raw_nodes(config: KrayminiConfig) -> list[Node]:
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {
-            pool.submit(fetch_subscription, sub.url): sub
+            pool.submit(
+                fetch_subscription,
+                sub.url,
+                user_agent=sub.user_agent,
+            ): sub
             for sub in config.subscriptions
         }
         for future in as_completed(futures):
@@ -229,7 +245,11 @@ class SubscriptionManager:
 
         with ThreadPoolExecutor(max_workers=4) as pool:
             futures = {
-                pool.submit(fetch_subscription, sub.url): sub
+                pool.submit(
+                    fetch_subscription,
+                    sub.url,
+                    user_agent=sub.user_agent,
+                ): sub
                 for sub in self.config.subscriptions
             }
             for future in as_completed(futures):

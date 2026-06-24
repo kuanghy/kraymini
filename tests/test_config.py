@@ -37,6 +37,7 @@ class TestConfigDataStructures:
         sub = SubscriptionConfig(url="https://example.com/sub")
         assert sub.url == "https://example.com/sub"
         assert sub.name == ""
+        assert sub.user_agent == ""
 
     def test_inbound_config_defaults(self):
         cfg = InboundConfig()
@@ -104,6 +105,7 @@ node_exclude = ["剩余流量"]
 [[subscriptions]]
 url = "https://example.com/sub"
 name = "provider-a"
+user_agent = "v2rayN"
 """
         path = write_config(toml)
         cfg = load_config(path)
@@ -113,6 +115,7 @@ name = "provider-a"
         assert cfg.general.daily_restart_time == "03:30"
         assert cfg.general.node_include == ["香港", "美国"]
         assert cfg.subscriptions[0].name == "provider-a"
+        assert cfg.subscriptions[0].user_agent == "v2rayN"
 
     def test_load_general_connectivity(self, write_config):
         toml = """
@@ -339,6 +342,47 @@ class TestValidateConfig:
         path = write_config('[[subscriptions]]\nurl = ""\n')
         with pytest.raises(ConfigError, match="url.*不能为空"):
             load_config(path)
+
+    def test_subscription_user_agent_rejects_newline(self, write_config):
+        toml = (
+            '[[subscriptions]]\n'
+            'url = "https://example.com/sub"\n'
+            'user_agent = "bad\\nagent"\n'
+        )
+        path = write_config(toml)
+        with pytest.raises(ConfigError, match="user_agent.*换行符"):
+            load_config(path)
+
+    def test_subscription_user_agent_rejects_non_string(self, write_config):
+        toml = (
+            '[[subscriptions]]\n'
+            'url = "https://example.com/sub"\n'
+            'user_agent = 123\n'
+        )
+        path = write_config(toml)
+        with pytest.raises(ConfigError, match="user_agent.*字符串"):
+            load_config(path)
+
+    def test_subscription_user_agent_rejects_leading_or_trailing_crlf(self, write_config):
+        for raw in ("\\nv2rayN", "v2rayN\\n", "\\rv2rayN", "v2rayN\\r"):
+            toml = (
+                '[[subscriptions]]\n'
+                'url = "https://example.com/sub"\n'
+                f'user_agent = "{raw}"\n'
+            )
+            path = write_config(toml, filename=f"ua-{raw.encode().hex()}.toml")
+            with pytest.raises(ConfigError, match="user_agent.*换行符"):
+                load_config(path)
+
+    def test_subscription_user_agent_is_stripped(self, write_config):
+        toml = (
+            '[[subscriptions]]\n'
+            'url = "https://example.com/sub"\n'
+            'user_agent = "  v2rayN  "\n'
+        )
+        path = write_config(toml)
+        cfg = load_config(path)
+        assert cfg.subscriptions[0].user_agent == "v2rayN"
 
     def test_invalid_port_range(self, write_config):
         toml = '[[subscriptions]]\nurl = "https://example.com/sub"\n\n[inbound]\nmixed_port = 70000\n'

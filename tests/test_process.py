@@ -33,6 +33,14 @@ def bad_xray(tmp_path):
     return str(script)
 
 
+@pytest.fixture
+def bad_xray_stdout(tmp_path):
+    script = tmp_path / "bad_xray_stdout"
+    script.write_text('#!/bin/sh\necho "failed to parse config"\nexit 1\n')
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    return str(script)
+
+
 class TestXrayProcess:
     def test_check_available_logs_version(self, fake_xray, caplog):
         caplog.set_level("INFO", logger="kraymini")
@@ -44,10 +52,19 @@ class TestXrayProcess:
         cfg.write_text("{}")
         assert XrayProcess(fake_xray).validate_config(str(cfg)) is True
 
-    def test_validate_fail(self, bad_xray, tmp_path):
+    def test_validate_fail_logs_stderr_reason(self, bad_xray, tmp_path, caplog):
+        caplog.set_level("ERROR", logger="kraymini")
         cfg = tmp_path / "xray.json"
         cfg.write_text("{}")
         assert XrayProcess(bad_xray).validate_config(str(cfg)) is False
+        assert "invalid config" in caplog.text
+
+    def test_validate_fail_logs_stdout_reason(self, bad_xray_stdout, tmp_path, caplog):
+        caplog.set_level("ERROR", logger="kraymini")
+        cfg = tmp_path / "xray.json"
+        cfg.write_text("{}")
+        assert XrayProcess(bad_xray_stdout).validate_config(str(cfg)) is False
+        assert "failed to parse config" in caplog.text
 
     def test_start_and_stop(self, fake_xray, tmp_path):
         cfg = tmp_path / "xray.json"

@@ -7,6 +7,8 @@ USER_AGENT = (
     "Chrome/125.0.0.0 Safari/537.36"
 )
 
+SUBSCRIPTION_USER_AGENT = "v2rayN"
+
 # mixed inbound tag（与 generator 中 mixed 入站一致，供 stats 查询与日志）
 STATS_INBOUND_TAG = "in-mixed"
 STATS_LOG_INTERVAL = 300  # 秒，固定 5 分钟输出一次流量

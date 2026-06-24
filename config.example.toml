@@ -44,6 +44,8 @@ refresh_interval = 10800
 [[subscriptions]]
 url = "https://your-provider.com/sub?token=xxx"
 name = "主力机场"
+# 某些机场会按客户端特征限制订阅；默认模拟 v2rayN，也可按需覆盖
+# user_agent = "v2rayN"
 
 # 可配置多个订阅源，节点会自动合并去重
 # [[subscriptions]]
