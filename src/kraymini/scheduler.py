@@ -5,12 +5,17 @@ import select
 import signal
 import sys
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
-from .config import KrayminiConfig
+from .config import KrayminiConfig, parse_daily_restart_time
 from .connectivity import check_local_connectivity, check_proxy_connectivity
 from .constants import STATS_INBOUND_TAG, STATS_LOG_INTERVAL, STATS_QUERY_TIMEOUT
-from .generator import generate_xray_config, write_xray_config
+from .generator import (
+    generate_xray_config,
+    promote_xray_config_candidate,
+    write_xray_config_candidate,
+)
 from .log import logger
 from .stats import format_traffic_log, query_inbound_traffic
 from .models import Node
@@ -20,6 +25,23 @@ from .subscription import SubscriptionManager
 
 POLL_INTERVAL = 5
 CRASH_RESTART_DELAY = 3
+
+
+def next_daily_restart_at(now: float, daily_restart_time: str) -> float | None:
+    parsed = parse_daily_restart_time(daily_restart_time)
+    if parsed is None:
+        return None
+
+    current = datetime.fromtimestamp(now)
+    scheduled = current.replace(
+        hour=parsed.hour,
+        minute=parsed.minute,
+        second=0,
+        microsecond=0,
+    )
+    if scheduled <= current:
+        scheduled += timedelta(days=1)
+    return scheduled.timestamp()
 
 
 class CrashMonitor:
@@ -47,13 +69,20 @@ class Daemon:
         self.config_path = config_path
         runtime_dir = str(Path(config.general.output_config).parent)
         self.sub_mgr = SubscriptionManager(config, config_path, runtime_dir=runtime_dir)
-        self.xray = XrayProcess(config.general.xray_bin)
+        self.xray = XrayProcess(
+            config.general.xray_bin,
+            gomemlimit=config.general.xray_gomemlimit,
+        )
         self.crash_monitor = CrashMonitor()
         self.current_nodes: list[Node] | None = None
         self._force_refresh = False
         self._running = True
         self._last_stats_log: float = 0.0
         self._last_connectivity_check: float = 0.0
+        self._next_daily_restart_at = next_daily_restart_at(
+            time.time(),
+            self.config.general.daily_restart_time,
+        )
         self._pipe_r, self._pipe_w = os.pipe()
         os.set_blocking(self._pipe_r, False)
         os.set_blocking(self._pipe_w, False)
@@ -99,12 +128,11 @@ class Daemon:
         if not nodes:
             logger.critical("订阅拉取失败且无可用缓存，无法生成配置")
             sys.exit(2)
-        self.current_nodes = nodes
-        xray_config = generate_xray_config(self.config, nodes)
-        config_path = write_xray_config(xray_config, self.config.general.output_config)
-        if not self.xray.validate_config(config_path):
+        config_path = self._prepare_live_config(nodes)
+        if config_path is None:
             logger.critical("xray 配置校验失败，无法启动")
             sys.exit(2)
+        self.current_nodes = nodes
         self.xray.start(config_path, log_file=self.config.log.file)
         # 以 xray 启动时刻为流量日志基准，满 STATS_LOG_INTERVAL 后开始周期性输出
         self._last_stats_log = time.time()
@@ -176,33 +204,89 @@ class Daemon:
                 err,
             )
 
-    def _do_refresh(self) -> None:
+    def _restart_with_current_config(self, reason: str) -> None:
+        self.xray.reload(
+            self.config.general.output_config,
+            log_file=self.config.log.file,
+        )
+        self.crash_monitor.reset()
+        self._last_stats_log = time.time()
+        logger.info("xray 已按%s完成重启", reason)
+
+    def _prepare_live_config(self, nodes: list[Node]) -> str | None:
+        xray_config = generate_xray_config(self.config, nodes)
+        candidate_path = write_xray_config_candidate(
+            xray_config,
+            self.config.general.output_config,
+        )
+        if not self.xray.validate_config(candidate_path):
+            Path(candidate_path).unlink(missing_ok=True)
+            return None
+        try:
+            return promote_xray_config_candidate(
+                candidate_path,
+                self.config.general.output_config,
+            )
+        finally:
+            Path(candidate_path).unlink(missing_ok=True)
+
+    def _do_refresh(
+        self,
+        *,
+        force_reload: bool = False,
+        restart_on_failure: bool = False,
+        reason: str = "订阅刷新",
+    ) -> None:
         if not self._check_xray_before_subscription(exit_on_fail=False):
             return
         new_nodes = self.sub_mgr.refresh()
         if not new_nodes:
             logger.error("订阅拉取失败或无有效节点，保持当前配置继续运行")
+            if restart_on_failure:
+                logger.warning("订阅刷新失败，改用当前配置执行%s", reason)
+                self._restart_with_current_config(reason)
             return
         if (
             not self.sub_mgr.nodes_changed(self.current_nodes, new_nodes)
             and not self.crash_monitor.is_suspended
+            and not force_reload
         ):
             logger.info("节点列表无变化，跳过重载")
             return
-        self.current_nodes = new_nodes
-        xray_config = generate_xray_config(self.config, new_nodes)
-        config_path = write_xray_config(xray_config, self.config.general.output_config)
-        if not self.xray.validate_config(config_path):
+        config_path = self._prepare_live_config(new_nodes)
+        if config_path is None:
             logger.error("新配置校验失败，保留旧配置和旧进程")
-            tmp = Path(config_path).with_suffix(".tmp")
-            if tmp.exists():
-                tmp.unlink()
+            if restart_on_failure:
+                logger.warning("新配置校验失败，改用当前配置执行%s", reason)
+                self._restart_with_current_config(reason)
             return
         self.xray.reload(config_path, log_file=self.config.log.file)
+        self.current_nodes = new_nodes
         self.crash_monitor.reset()
         # 新进程计数器从 0 开始，重新锚定基准时间，避免立即打印一条小值
         self._last_stats_log = time.time()
-        logger.info("xray 配置已重载")
+        if force_reload:
+            logger.info("xray 已按%s刷新并重启", reason)
+        else:
+            logger.info("xray 配置已重载")
+
+    def _maybe_run_daily_restart(self, now: float) -> bool:
+        if self._next_daily_restart_at is None:
+            return False
+        if now < self._next_daily_restart_at:
+            return False
+
+        self._next_daily_restart_at = next_daily_restart_at(
+            now + 1,
+            self.config.general.daily_restart_time,
+        )
+        logger.info("到达每日定时窗口，开始刷新订阅并重启 xray")
+        self._do_refresh(
+            force_reload=True,
+            restart_on_failure=True,
+            reason="每日定时重启",
+        )
+        return True
 
     def run(self) -> None:
         self._setup_signals()
@@ -233,6 +317,9 @@ class Daemon:
                         log_file=self.config.log.file,
                     )
                     self._last_stats_log = time.time()
+            if self._maybe_run_daily_restart(now):
+                last_refresh = now
+                continue
             need_refresh = self._force_refresh or (
                 time.time() - last_refresh >= self.config.general.refresh_interval
             )

@@ -1,4 +1,5 @@
 import stat
+import time
 import pytest
 from kraymini.process import XrayProcess, XrayError
 
@@ -68,6 +69,36 @@ class TestXrayProcess:
             proc.start(str(cfg), log_file=str(kraymini_log))
             assert proc.is_running()
             assert kraymini_log.exists()
+        finally:
+            proc.stop()
+
+    def test_start_sets_gomemlimit_env_when_configured(self, tmp_path):
+        env_dump = tmp_path / "gomemlimit.txt"
+        script = tmp_path / "fake_xray_env"
+        script.write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = "run" ] && [ "$2" = "-c" ]; then\n'
+            f'    echo "${{GOMEMLIMIT:-}}" > "{env_dump}"\n'
+            "    while true; do sleep 1; done\n"
+            "fi\n",
+        )
+        script.chmod(script.stat().st_mode | stat.S_IEXEC)
+        cfg = tmp_path / "xray.json"
+        cfg.write_text("{}")
+        proc = XrayProcess(str(script), gomemlimit="1GiB")
+        try:
+            proc.start(str(cfg))
+            assert proc.is_running()
+            env_value = None
+            for _ in range(100):
+                if env_dump.exists():
+                    env_value = env_dump.read_text().strip()
+                    if env_value:
+                        break
+                time.sleep(0.05)
+            else:
+                pytest.fail("未在预期时间内读取到 GOMEMLIMIT 环境变量")
+            assert env_value == "1GiB"
         finally:
             proc.stop()
 

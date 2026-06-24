@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -23,8 +24,9 @@ def resolve_xray_bin(xray_bin: str) -> str | None:
 
 
 class XrayProcess:
-    def __init__(self, xray_bin: str = "xray"):
+    def __init__(self, xray_bin: str = "xray", gomemlimit: str = ""):
         self.xray_bin = xray_bin
+        self.gomemlimit = gomemlimit.strip()
         self._process: subprocess.Popen | None = None
         self._log_fh = None
 
@@ -93,7 +95,9 @@ class XrayProcess:
     def start(self, config_path: str, log_file: str = "") -> None:
         bin_path = self._resolve_bin()
         self._close_log_fh()
-        popen_kwargs: dict = {}
+        popen_kwargs: dict = {"env": os.environ.copy()}
+        if self.gomemlimit:
+            popen_kwargs["env"]["GOMEMLIMIT"] = self.gomemlimit
         if log_file:
             self._log_fh = open(log_file, "a", encoding="utf-8")
             popen_kwargs["stdout"] = self._log_fh

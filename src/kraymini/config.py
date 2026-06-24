@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import ipaddress
+import re
 import tomllib
 from dataclasses import dataclass, field, fields
+from datetime import time as dt_time
 from pathlib import Path
 
 from .constants import LANDING_CHAIN_PREFIX
@@ -17,6 +19,8 @@ class GeneralConfig:
     xray_bin: str = "xray"
     output_config: str = "~/.kraymini/xray.json"
     refresh_interval: int = 10800
+    xray_gomemlimit: str = ""
+    daily_restart_time: str = ""
     connectivity_check_interval: int = 600
     connectivity_probe_url: str = "https://www.google.com/generate_204"
     connectivity_probe_timeout: int = 5
@@ -173,6 +177,7 @@ VALID_NETWORKS = {"tcp", "ws", "grpc", "h2", "xhttp", "httpupgrade"}
 VALID_DOMAIN_STRATEGIES = {"AsIs", "IPIfNonMatch", "IPOnDemand"}
 VALID_DOMAIN_MATCHERS = {"linear", "mph"}
 VALID_OUTBOUND_TAGS = {"direct", "blocked"}
+GOMEMLIMIT_PATTERN = re.compile(r"^\d+(?:[KMGTP]i?B)?$")
 
 SEARCH_PATHS = [
     Path("./config.toml"),
@@ -215,6 +220,32 @@ def _reject_unknown_top_level(raw: dict) -> None:
 def _from_toml(cls: type, data: dict):
     """从 TOML dict 构建 dataclass，缺失键使用 dataclass 默认值"""
     return cls(**{k: v for k, v in data.items() if k in _known_keys(cls)})
+
+
+def parse_daily_restart_time(value: str) -> dt_time | None:
+    if not isinstance(value, str):
+        raise ConfigError("daily_restart_time 必须是字符串，格式如 03:30")
+    value = value.strip()
+    if not value:
+        return None
+
+    parts = value.split(":")
+    if len(parts) != 2 or any(not part.isdigit() for part in parts):
+        raise ConfigError(
+            "daily_restart_time 格式无效，应为 HH:MM（24 小时制），例如 03:30"
+        )
+    if any(len(part) != 2 for part in parts):
+        raise ConfigError(
+            "daily_restart_time 格式无效，应为 HH:MM（24 小时制），例如 03:30"
+        )
+
+    hour, minute = (int(part) for part in parts)
+    try:
+        return dt_time(hour=hour, minute=minute)
+    except ValueError as e:
+        raise ConfigError(
+            "daily_restart_time 格式无效，应为 HH:MM（24 小时制），例如 03:30"
+        ) from e
 
 
 def _load_transport(data: dict) -> TransportConfig:
@@ -337,6 +368,18 @@ def _validate_config(cfg: KrayminiConfig) -> None:
 
     if cfg.general.refresh_interval <= 0:
         raise ConfigError("refresh_interval 必须为正整数")
+
+    if not isinstance(cfg.general.xray_gomemlimit, str):
+        raise ConfigError("xray_gomemlimit 必须是字符串，如 512MiB")
+    cfg.general.xray_gomemlimit = cfg.general.xray_gomemlimit.strip()
+    if cfg.general.xray_gomemlimit and not GOMEMLIMIT_PATTERN.fullmatch(
+        cfg.general.xray_gomemlimit
+    ):
+        raise ConfigError(
+            "xray_gomemlimit 格式无效，应为整数或带单位的值，如 512MiB、1GiB"
+        )
+    parse_daily_restart_time(cfg.general.daily_restart_time)
+    cfg.general.daily_restart_time = cfg.general.daily_restart_time.strip()
 
     if cfg.general.connectivity_check_interval < 0:
         raise ConfigError("connectivity_check_interval 不能为负数")

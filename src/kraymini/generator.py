@@ -436,7 +436,7 @@ def generate_xray_config(cfg: KrayminiConfig, nodes: list[Node]) -> dict:
 
 def write_xray_config(xray_config: dict, output_path: str) -> str:
     path = Path(output_path)
-    tmp_path = path.with_suffix(".tmp")
+    tmp_path = xray_config_candidate_path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path.write_text(
         json.dumps(xray_config, indent=2, ensure_ascii=False),
@@ -444,3 +444,25 @@ def write_xray_config(xray_config: dict, output_path: str) -> str:
     )
     tmp_path.rename(path)
     return str(path)
+
+
+def xray_config_candidate_path(output_path: str) -> Path:
+    return Path(output_path).with_suffix(".tmp")
+
+
+def write_xray_config_candidate(xray_config: dict, output_path: str) -> str:
+    candidate_path = xray_config_candidate_path(output_path)
+    candidate_path.parent.mkdir(parents=True, exist_ok=True)
+    candidate_path.write_text(
+        json.dumps(xray_config, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return str(candidate_path)
+
+
+def promote_xray_config_candidate(candidate_path: str, output_path: str) -> str:
+    candidate = Path(candidate_path)
+    target = Path(output_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    candidate.rename(target)
+    return str(target)

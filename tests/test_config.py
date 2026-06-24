@@ -24,6 +24,8 @@ class TestConfigDataStructures:
         assert cfg.xray_bin == "xray"
         assert cfg.output_config == "~/.kraymini/xray.json"
         assert cfg.refresh_interval == 10800
+        assert cfg.xray_gomemlimit == ""
+        assert cfg.daily_restart_time == ""
         assert cfg.connectivity_check_interval == 600
         assert "google.com" in cfg.connectivity_probe_url
         assert cfg.connectivity_probe_timeout == 5
@@ -94,6 +96,8 @@ class TestLoadConfig:
 xray_bin = "/usr/local/bin/xray"
 output_config = "/tmp/xray.json"
 refresh_interval = 3600
+xray_gomemlimit = "1GiB"
+daily_restart_time = "03:30"
 node_include = ["香港", "美国"]
 node_exclude = ["剩余流量"]
 
@@ -105,6 +109,8 @@ name = "provider-a"
         cfg = load_config(path)
         assert cfg.general.xray_bin == "/usr/local/bin/xray"
         assert cfg.general.refresh_interval == 3600
+        assert cfg.general.xray_gomemlimit == "1GiB"
+        assert cfg.general.daily_restart_time == "03:30"
         assert cfg.general.node_include == ["香港", "美国"]
         assert cfg.subscriptions[0].name == "provider-a"
 
@@ -503,6 +509,42 @@ outbound_tag = "LP-Via: my-node"
         )
         path = write_config(toml)
         with pytest.raises(ConfigError, match="connectivity_probe_timeout"):
+            load_config(path)
+
+    def test_invalid_xray_gomemlimit_type(self, write_config):
+        toml = (
+            "[general]\nxray_gomemlimit = 512\n\n"
+            '[[subscriptions]]\nurl = "https://example.com/sub"\n'
+        )
+        path = write_config(toml)
+        with pytest.raises(ConfigError, match="xray_gomemlimit"):
+            load_config(path)
+
+    def test_invalid_xray_gomemlimit_format(self, write_config):
+        toml = (
+            '[general]\nxray_gomemlimit = "not-a-size"\n\n'
+            '[[subscriptions]]\nurl = "https://example.com/sub"\n'
+        )
+        path = write_config(toml)
+        with pytest.raises(ConfigError, match="xray_gomemlimit"):
+            load_config(path)
+
+    def test_invalid_daily_restart_time(self, write_config):
+        toml = (
+            '[general]\ndaily_restart_time = "25:00"\n\n'
+            '[[subscriptions]]\nurl = "https://example.com/sub"\n'
+        )
+        path = write_config(toml)
+        with pytest.raises(ConfigError, match="daily_restart_time"):
+            load_config(path)
+
+    def test_invalid_daily_restart_time_requires_zero_padding(self, write_config):
+        toml = (
+            '[general]\ndaily_restart_time = "3:05"\n\n'
+            '[[subscriptions]]\nurl = "https://example.com/sub"\n'
+        )
+        path = write_config(toml)
+        with pytest.raises(ConfigError, match="daily_restart_time"):
             load_config(path)
 
     def test_invalid_connectivity_probe_url(self, write_config):

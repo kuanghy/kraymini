@@ -16,6 +16,9 @@ from kraymini.generator import (
     generate_stats_policy,
     generate_xray_config,
     write_xray_config,
+    write_xray_config_candidate,
+    promote_xray_config_candidate,
+    xray_config_candidate_path,
 )
 from kraymini.config import (
     InboundConfig,
@@ -495,3 +498,16 @@ class TestGenerateXrayConfig:
         written = write_xray_config(xray, str(out))
         assert Path(written).exists()
         assert json.loads(Path(written).read_text()) == xray
+
+    def test_write_xray_config_candidate_and_promote(self, tmp_path):
+        xray = {"candidate": True}
+        out = tmp_path / "out" / "xray.json"
+        candidate = Path(write_xray_config_candidate(xray, str(out)))
+        assert candidate == xray_config_candidate_path(str(out))
+        assert candidate.exists()
+        assert not out.exists()
+        written = promote_xray_config_candidate(str(candidate), str(out))
+        assert Path(written) == out
+        assert out.exists()
+        assert not candidate.exists()
+        assert json.loads(out.read_text()) == xray
