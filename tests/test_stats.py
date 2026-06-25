@@ -5,6 +5,7 @@ import pytest
 
 from kraymini.stats import (
     format_bytes,
+    format_duration,
     format_traffic_log,
     query_inbound_traffic,
 )
@@ -32,6 +33,18 @@ class TestFormatTrafficLog:
         assert "上行" in s and "下行" in s
         assert "100 B" in s
         assert "2.00 KB" in s
+
+    def test_includes_elapsed_duration_when_provided(self):
+        s = format_traffic_log(100, 2048, elapsed_seconds=3661)
+        assert "统计时长 1 小时 1 分钟 1 秒" in s
+
+
+class TestFormatDuration:
+    def test_seconds_only(self):
+        assert format_duration(59) == "59 秒"
+
+    def test_mixed_units(self):
+        assert format_duration(3661) == "1 小时 1 分钟 1 秒"
 
 
 @pytest.fixture

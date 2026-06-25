@@ -21,8 +21,38 @@ def format_bytes(n: int) -> str:
     return f"{val:.2f} TB"
 
 
-def format_traffic_log(uplink: int, downlink: int) -> str:
-    return f"流量统计: 上行 {format_bytes(uplink)}, 下行 {format_bytes(downlink)}"
+def format_duration(seconds: float) -> str:
+    """把秒数格式化为中文可读时长"""
+    total_seconds = max(0, int(seconds))
+    if total_seconds < 60:
+        return f"{total_seconds} 秒"
+
+    units = (
+        (24 * 3600, "天"),
+        (3600, "小时"),
+        (60, "分钟"),
+        (1, "秒"),
+    )
+    parts: list[str] = []
+    remaining = total_seconds
+    for unit_seconds, unit_name in units:
+        value, remaining = divmod(remaining, unit_seconds)
+        if value == 0:
+            continue
+        parts.append(f"{value} {unit_name}")
+    return " ".join(parts)
+
+
+def format_traffic_log(
+    uplink: int,
+    downlink: int,
+    *,
+    elapsed_seconds: float | None = None,
+) -> str:
+    prefix = "流量统计"
+    if elapsed_seconds is not None:
+        prefix = f"{prefix}（统计时长 {format_duration(elapsed_seconds)}）"
+    return f"{prefix}: 上行 {format_bytes(uplink)}, 下行 {format_bytes(downlink)}"
 
 
 def _coerce_counter_value(raw) -> int | None:

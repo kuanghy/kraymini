@@ -78,6 +78,7 @@ class Daemon:
         self._force_refresh = False
         self._running = True
         self._last_stats_log: float = 0.0
+        self._stats_started_at: float = 0.0
         self._last_connectivity_check: float = 0.0
         self._next_daily_restart_at = next_daily_restart_at(
             time.time(),
@@ -135,7 +136,9 @@ class Daemon:
         self.current_nodes = nodes
         self.xray.start(config_path, log_file=self.config.log.file)
         # 以 xray 启动时刻为流量日志基准，满 STATS_LOG_INTERVAL 后开始周期性输出
-        self._last_stats_log = time.time()
+        started_at = time.time()
+        self._stats_started_at = started_at
+        self._last_stats_log = started_at
 
     def _stats_endpoint(self) -> str:
         # 主进程与子进程在同一机器，直接使用回环地址通信
@@ -160,7 +163,15 @@ class Daemon:
         if result is None:
             return
         uplink, downlink = result
-        logger.info("%s", format_traffic_log(uplink, downlink))
+        elapsed_seconds = max(0.0, now - self._stats_started_at)
+        logger.info(
+            "%s",
+            format_traffic_log(
+                uplink,
+                downlink,
+                elapsed_seconds=elapsed_seconds,
+            ),
+        )
 
     def _maybe_check_connectivity(self, now: float) -> None:
         """周期性探测经代理的外网连通性；失败时再探本地 TCP，本地通则尝试刷新订阅
@@ -210,7 +221,9 @@ class Daemon:
             log_file=self.config.log.file,
         )
         self.crash_monitor.reset()
-        self._last_stats_log = time.time()
+        restarted_at = time.time()
+        self._stats_started_at = restarted_at
+        self._last_stats_log = restarted_at
         logger.info("xray 已按%s完成重启", reason)
 
     def _prepare_live_config(self, nodes: list[Node]) -> str | None:
@@ -264,7 +277,9 @@ class Daemon:
         self.current_nodes = new_nodes
         self.crash_monitor.reset()
         # 新进程计数器从 0 开始，重新锚定基准时间，避免立即打印一条小值
-        self._last_stats_log = time.time()
+        restarted_at = time.time()
+        self._stats_started_at = restarted_at
+        self._last_stats_log = restarted_at
         if force_reload:
             logger.info("xray 已按%s刷新并重启", reason)
         else:
@@ -316,7 +331,9 @@ class Daemon:
                         self.config.general.output_config,
                         log_file=self.config.log.file,
                     )
-                    self._last_stats_log = time.time()
+                    restarted_at = time.time()
+                    self._stats_started_at = restarted_at
+                    self._last_stats_log = restarted_at
             if self._maybe_run_daily_restart(now):
                 last_refresh = now
                 continue

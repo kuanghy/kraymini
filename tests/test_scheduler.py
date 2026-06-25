@@ -418,6 +418,39 @@ class TestDaemon:
         assert live_config.exists()
         assert 'new-node' in live_config.read_text()
 
+    @patch("kraymini.scheduler.format_traffic_log", return_value="流量统计日志")
+    @patch("kraymini.scheduler.query_inbound_traffic", return_value=(1024, 2048))
+    @patch("kraymini.scheduler.logger.info")
+    @patch("kraymini.process.XrayProcess.is_running", return_value=True)
+    @patch("kraymini.scheduler.SubscriptionManager")
+    def test_maybe_log_stats_includes_elapsed_time_since_stats_started(
+        self,
+        mock_mgr_cls,
+        _mock_is_running,
+        mock_log_info,
+        mock_query_traffic,
+        mock_format_traffic_log,
+        tmp_path,
+        fake_xray,
+    ):
+        mock_mgr_cls.return_value = MagicMock()
+        config_path = tmp_path / "config.toml"
+        config_path.write_text('[[subscriptions]]\nurl = "https://example.com/sub"\n')
+        cfg = self._make_config(tmp_path, fake_xray)
+        daemon = Daemon(cfg, str(config_path))
+        daemon._last_stats_log = 0.0
+        daemon._stats_started_at = 1_000.0
+
+        daemon._maybe_log_stats(1_500.0)
+
+        mock_query_traffic.assert_called_once()
+        mock_format_traffic_log.assert_called_once_with(
+            1024,
+            2048,
+            elapsed_seconds=500.0,
+        )
+        mock_log_info.assert_called_once_with("%s", "流量统计日志")
+
 
 class TestDaemonConnectivity:
     def _make_config(self, tmp_path, xray_bin: str) -> KrayminiConfig:
