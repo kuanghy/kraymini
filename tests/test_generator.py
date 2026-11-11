@@ -263,14 +263,15 @@ class TestGenerateNodeOutbound:
         hu = ob["streamSettings"]["httpupgradeSettings"]
         assert hu["host"] == "cdn.example.com" and hu["path"] == "/up"
 
-    def test_proxy_settings(self):
+    def test_dialer_proxy_keeps_stream_settings(self):
         ob = generate_node_outbound(_vless_node(), proxy_tag="landing-proxy")
-        assert ob["proxySettings"]["tag"] == "landing-proxy"
-        assert ob["proxySettings"]["transportLayer"] is True
+        assert "proxySettings" not in ob
+        assert ob["streamSettings"]["network"] == "tcp"
+        assert ob["streamSettings"]["sockopt"]["dialerProxy"] == "landing-proxy"
 
 
 class TestLandingProxy:
-    def test_chain_outbound_proxy_settings(self):
+    def test_chain_outbound_uses_dialer_proxy(self):
         lp = LandingProxyConfig(
             protocol="trojan", address="land.com", port=443, password="pw",
             transport=TransportConfig(network="tcp"),
@@ -278,8 +279,10 @@ class TestLandingProxy:
         )
         ob = generate_landing_chain_outbound(lp, "LP-Via: n1", "n1")
         assert ob["tag"] == "LP-Via: n1"
-        assert ob["proxySettings"]["tag"] == "n1"
-        assert ob["proxySettings"]["transportLayer"] is True
+        assert "proxySettings" not in ob
+        assert ob["streamSettings"]["network"] == "tcp"
+        assert ob["streamSettings"]["security"] == "tls"
+        assert ob["streamSettings"]["sockopt"]["dialerProxy"] == "n1"
 
     def test_trojan_tls(self):
         lp = LandingProxyConfig(
@@ -348,7 +351,9 @@ class TestFixedOutbounds:
     def test_direct_and_blocked(self):
         obs = generate_fixed_outbounds()
         direct = next(o for o in obs if o["tag"] == "direct")
-        assert direct["protocol"] == "freedom" and direct["settings"]["domainStrategy"] == "UseIP"
+        assert direct["protocol"] == "freedom"
+        assert direct.get("settings", {}).get("domainStrategy") is None
+        assert direct["streamSettings"]["sockopt"]["domainStrategy"] == "UseIP"
         blocked = next(o for o in obs if o["tag"] == "blocked")
         assert blocked["protocol"] == "blackhole"
 
@@ -479,7 +484,8 @@ class TestGenerateXrayConfig:
         node_ob = next(o for o in xray["outbounds"] if o["tag"] == "node-1")
         assert "proxySettings" not in node_ob
         chain_ob = next(o for o in xray["outbounds"] if o["tag"] == "LP-Via: node-1")
-        assert chain_ob["proxySettings"]["tag"] == "node-1"
+        assert "proxySettings" not in chain_ob
+        assert chain_ob["streamSettings"]["sockopt"]["dialerProxy"] == "node-1"
         assert xray["routing"]["balancers"][0]["selector"] == ["LP-Via: node-1"]
         assert xray["routing"]["balancers"][0]["fallbackTag"] == "blocked"
         assert xray["observatory"]["subjectSelector"] == ["LP-Via: node-1"]

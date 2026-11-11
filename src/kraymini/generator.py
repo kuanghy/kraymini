@@ -129,6 +129,13 @@ def _build_stream_settings(transport: dict) -> dict:
     return ss
 
 
+def _set_dialer_proxy(outbound: dict, proxy_tag: str) -> None:
+    """链式转发写到 sockopt.dialerProxy，保留已有 streamSettings"""
+    stream = outbound.setdefault("streamSettings", {})
+    sockopt = stream.setdefault("sockopt", {})
+    sockopt["dialerProxy"] = proxy_tag
+
+
 def generate_node_outbound(node: Node, proxy_tag: str | None = None) -> dict:
     ob: dict = {"tag": node.remark, "protocol": "", "settings": {}, "streamSettings": {}}
 
@@ -215,7 +222,7 @@ def generate_node_outbound(node: Node, proxy_tag: str | None = None) -> dict:
     ob["streamSettings"] = _build_stream_settings(node.transport)
 
     if proxy_tag:
-        ob["proxySettings"] = {"tag": proxy_tag, "transportLayer": True}
+        _set_dialer_proxy(ob, proxy_tag)
 
     return ob
 
@@ -273,13 +280,17 @@ def generate_landing_chain_outbound(
     """落地协议出站，经订阅节点 outbound 连接落地机（出口为落地 IP）。"""
     ob = _build_landing_outbound_body(lp)
     ob["tag"] = chain_tag
-    ob["proxySettings"] = {"tag": via_node_tag, "transportLayer": True}
+    _set_dialer_proxy(ob, via_node_tag)
     return ob
 
 
 def generate_fixed_outbounds() -> list[dict]:
     return [
-        {"tag": "direct", "protocol": "freedom", "settings": {"domainStrategy": "UseIP"}},
+        {
+            "tag": "direct",
+            "protocol": "freedom",
+            "streamSettings": {"sockopt": {"domainStrategy": "UseIP"}},
+        },
         {"tag": "blocked", "protocol": "blackhole", "settings": {}},
     ]
 
